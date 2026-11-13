@@ -24,7 +24,7 @@ Built in C# with Blazor WebAssembly (.NET 8), so the whole app runs in the brows
 - **Prebuilt decks:** import any official precon (Commander decks, Duel Decks, Challenger Decks, Starter Kits and more) in one tap, with the exact printings from the box. Deck lists come from [MTGJSON](https://mtgjson.com)
 - **Sign in with Google or Apple:** no passwords to remember. Your profile, decks and playgroups follow you to any device
 - **Decks at the table:** pick each player's deck when starting a game; the format follows the decks and the player's card shows the commander's art
-- **Player profiles:** a profile for each person in the playgroup, with the cards they own (search, scan or paste a list) and what their collection is worth, plus the decks they own. Anyone can still play anyone's deck. Profiles don't need an account, so friends without one can have one too
+- **Player profiles:** everyone who signs in gets a profile, with the cards they own (search, scan or paste a list) and what their collection is worth, plus the decks they own. Anyone can still play anyone's deck. Friends without an account can have a profile too; whoever made it gives them its invite code, and they claim it the first time they sign in. Wrong invite codes are limited: 3 in a row means a 15-minute wait, and 10 in all blocks the account
 - **Play history:** pick each seat's profile when starting a game, and the game is saved when you start the next one: who played which deck, and who won. Each profile shows games, wins and win rate, overall and per deck, and each deck shows its record across everyone who played it
 
 ## Run it locally

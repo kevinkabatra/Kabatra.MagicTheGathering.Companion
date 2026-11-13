@@ -272,6 +272,10 @@ input[type="search"], input[type="email"] { min-width: 0; }
     width: 100%; min-height: 48px; font-weight: 600;
 }
 .provider-icon { width: 20px; height: 20px; flex: none; }
+.first-sign-in { max-width: 560px; padding-top: 6vh; }
+.claim-code { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.claim-code code { font-size: 1.3rem; letter-spacing: 0.12em; padding: 0.2rem 0.6rem; border: 1px dashed var(--border); border-radius: 8px; }
+.badge { display: inline-block; font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); vertical-align: middle; }
 
 .account-bar {
     display: flex;

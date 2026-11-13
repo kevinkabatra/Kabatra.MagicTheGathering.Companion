@@ -152,7 +152,7 @@
         _error = null;
         try
         {
-            var saved = await store.SaveAsync(new PlayerProfile { Name = name });
+            var saved = await store.CreateAsync(name);
             Nav.NavigateTo($"profiles/{saved.Id}");
         }
         catch (Exception e) when (e is SupabaseException or HttpRequestException)

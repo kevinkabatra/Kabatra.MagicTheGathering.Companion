@@ -10,7 +10,13 @@
 <div class="page wide">
     <header class="page-head">
         <a href="profiles" class="back">← Players</a>
-        <h1>@(string.IsNullOrWhiteSpace(_profile?.Name) ? "Player" : _profile.Name)</h1>
+        <h1>
+            @(string.IsNullOrWhiteSpace(_profile?.Name) ? "Player" : _profile.Name)
+            @if (_profile is not null)
+            {
+                <span class="badge">@(_profile.UserId == Library.UserId ? "You" : _profile.IsClaimed ? "Signed in" : "Not signed in yet")</span>
+            }
+        </h1>
     </header>
 
     @if (Library.Profiles is null)
@@ -27,18 +33,54 @@
         var stats = PlayerStats.For(_profile.Id, _games);
         var worth = DeckValue.Of(_profile.Collection, _cards);
 
-        <div class="row spread save-bar">
-            <label class="field grow">
-                <span>Name</span>
-                <input @bind="_profile.Name" @bind:after="Touch" maxlength="60" aria-label="Player name" />
-            </label>
-            <div class="actions">
-                @if (_dirty) { <span class="unsaved small">Unsaved changes</span> }
-                <button @onclick="DeleteAsync">Delete</button>
-                <button class="primary" @onclick="SaveAsync" disabled="@(_saving || string.IsNullOrWhiteSpace(_profile.Name))">@(_saving ? "Saving…" : "Save")</button>
+        @if (_canManage)
+        {
+            <div class="row spread save-bar">
+                <label class="field grow">
+                    <span>Name</span>
+                    <input @bind="_profile.Name" @bind:after="Touch" maxlength="60" aria-label="Player name" />
+                </label>
+                <div class="actions">
+                    @if (_dirty) { <span class="unsaved small">Unsaved changes</span> }
+                    <button @onclick="DeleteAsync">Delete</button>
+                    <button class="primary" @onclick="SaveAsync" disabled="@(_saving || string.IsNullOrWhiteSpace(_profile.Name))">@(_saving ? "Saving…" : "Save")</button>
+                </div>
             </div>
-        </div>
+        }
+        else
+        {
+            <p class="muted small">
+                @(_profile.IsClaimed
+                    ? $"Only {_profile.Name} can change this profile."
+                    : "Only the person who made this profile can change it, until its player signs in and claims it.")
+            </p>
+        }
         <ErrorMessage Message="@_error" />
+
+        @if (_canManage && !_profile.IsClaimed)
+        {
+            <section class="panel account">
+                <h2>Invite @_profile.Name</h2>
+                <p class="muted">
+                    Give @_profile.Name this code. When they sign in for the first time, they can enter it to make this profile
+                    theirs, with its collection, decks, playgroups and games. Each code works once.
+                </p>
+                @if (_claimCode is null)
+                {
+                    <div class="actions"><button @onclick="() => LoadClaimCodeAsync(false)" disabled="@_codeBusy">Show invite code</button></div>
+                }
+                else
+                {
+                    <div class="claim-code">
+                        <code>@_claimCode</code>
+                        <button class="icon" title="Copy invite code" aria-label="Copy invite code" @onclick="CopyClaimCodeAsync">⧉</button>
+                        <button @onclick="ResetClaimCodeAsync" disabled="@_codeBusy" title="Make a new code; the old one stops working">New code</button>
+                        @if (_copied) { <span class="muted">Copied!</span> }
+                    </div>
+                }
+                <ErrorMessage Message="@_codeError" />
+            </section>
+        }
 
         <dl class="stat-row">
             <div><dt>Games</dt><dd>@stats.Games</dd></div>
@@ -58,7 +100,7 @@
         <section class="profile-section">
             <div class="row spread">
                 <h2>Decks <span class="muted">(@_decks.Count)</span></h2>
-                <a class="button" href="decks/new?owner=@_profile.Id">+ New deck</a>
+                @if (_canManage) { <a class="button" href="decks/new?owner=@_profile.Id">+ New deck</a> }
             </div>
             <p class="muted small">Decks this player owns. Anyone can play them; each deck's record counts every game it was played in.</p>
             @if (_decks.Count == 0)
@@ -80,7 +122,10 @@
                                     <span class="muted small">@(record.Games == 0 ? "Not played yet" : $"{record.Wins}–{record.Games - record.Wins} in {record.Games} game{(record.Games == 1 ? "" : "s")}")</span>
                                 </div>
                             </a>
-                            <button class="link small" @onclick="() => AddDeckToCollectionAsync(deck)" title="Count this deck's cards as owned">+ Add its cards to the collection</button>
+                            @if (_canManage)
+                            {
+                                <button class="link small" @onclick="() => AddDeckToCollectionAsync(deck)" title="Count this deck's cards as owned">+ Add its cards to the collection</button>
+                            }
                         </li>
                     }
                 </ul>
@@ -91,10 +136,13 @@
             <section class="profile-section">
                 <div class="row spread">
                     <h2>Collection <span class="muted">(@_profile.CardCount)</span></h2>
-                    <div class="actions">
-                        <button @onclick="() => _showScanner = true" title="Scan physical cards with the camera">📷 Scan</button>
-                        <button @onclick="() => _showPaste = true">Paste list</button>
-                    </div>
+                    @if (_canManage)
+                    {
+                        <div class="actions">
+                            <button @onclick="() => _showScanner = true" title="Scan physical cards with the camera">📷 Scan</button>
+                            <button @onclick="() => _showPaste = true">Paste list</button>
+                        </div>
+                    }
                 </div>
                 @if (_profile.Collection.Count == 0)
                 {
@@ -115,9 +163,9 @@
                                 var price = DeckValue.LinePrice(line, _cards);
                                 <li class="deck-line collection-line @(card is null && !_resolving ? "unknown" : null)">
                                     <div class="qty">
-                                        <button class="icon" @onclick="() => SetQuantity(line, line.Quantity - 1)" aria-label="One fewer @line.Name">−</button>
+                                        @if (_canManage) { <button class="icon" @onclick="() => SetQuantity(line, line.Quantity - 1)" aria-label="One fewer @line.Name">−</button> }
                                         <span>@line.Quantity</span>
-                                        <button class="icon" @onclick="() => SetQuantity(line, line.Quantity + 1)" aria-label="One more @line.Name">+</button>
+                                        @if (_canManage) { <button class="icon" @onclick="() => SetQuantity(line, line.Quantity + 1)" aria-label="One more @line.Name">+</button> }
                                     </div>
                                     <button class="card-name" @onclick="() => { if (card is not null) _preview = card; }">@line.Name</button>
                                     <span class="muted small printing">@(line.SetCode?.ToUpperInvariant())@(line.CollectorNumber is null ? "" : $" #{line.CollectorNumber}")</span>
@@ -129,10 +177,13 @@
                 }
             </section>
 
-            <section class="search-side">
-                <h2>Add cards</h2>
-                <CardSearch OnAdd="AddCard" CollectionMode="true" />
-            </section>
+            @if (_canManage)
+            {
+                <section class="search-side">
+                    <h2>Add cards</h2>
+                    <CardSearch OnAdd="AddCard" CollectionMode="true" />
+                </section>
+            }
         </div>
 
         <section class="profile-section">
@@ -222,6 +273,11 @@
     private string? _historyError;
     private string? _error;
     private IDisposable? _leaveGuard;
+    private bool _canManage;
+    private string? _claimCode;
+    private string? _codeError;
+    private bool _codeBusy;
+    private bool _copied;
 
     protected override async Task OnInitializedAsync()
     {
@@ -233,6 +289,7 @@
             _profile = await profiles.GetAsync(Id);
             if (_profile is null) { _loadError = "That player doesn't exist any more, or isn't in this playgroup."; return; }
             _savedName = _profile.Name;
+            _canManage = Library.CanManage(_profile);
             if (Library.Store is { } decks)
                 _decks = (await decks.ListAsync()).Where(d => d.OwnerProfileId == Id).ToList();
         }
@@ -394,28 +451,57 @@
     private async Task DeleteAsync()
     {
         if (_profile is null || Library.Profiles is not { } store) return;
-        var where = Library.CurrentGroup?.Name is { } group ? $" from {group}" : "";
-        if (!await Js.InvokeAsync<bool>("confirm",
-                $"Delete {_savedName}{where}? Their collection is deleted too. Their decks stay, without an owner profile, and past games keep their name. This can't be undone."))
-            return;
+        var mine = _profile.UserId == Library.UserId;
+        var message = mine
+            ? "Delete your profile? Your collection and decks are deleted, and you leave every playgroup. Past games keep your name. This can't be undone."
+            : $"Delete {_savedName}? Their collection and decks are deleted, and they leave every playgroup. Past games keep their name. This can't be undone.";
+        if (!await Js.InvokeAsync<bool>("confirm", message)) return;
         try
         {
-            if (Library.Store is { } decks)
-            {
-                foreach (var deck in _decks)
-                {
-                    deck.OwnerProfileId = null;
-                    await decks.SaveAsync(deck);
-                }
-            }
             await store.DeleteAsync(_profile.Id);
             _dirty = false;
+            if (mine) await Library.RetryAccountAsync(); // back to choosing a profile
             Nav.NavigateTo("profiles");
         }
         catch (Exception e) when (e is SupabaseException or HttpRequestException)
         {
             _error = CloudErrors.Describe("Couldn't delete", e);
         }
+    }
+
+    private async Task LoadClaimCodeAsync(bool reset)
+    {
+        if (_profile is null) return;
+        _codeBusy = true;
+        _codeError = null;
+        try
+        {
+            _claimCode = await Library.GetClaimCodeAsync(_profile.Id, reset);
+            _copied = false;
+        }
+        catch (DeckLibraryException e)
+        {
+            _codeError = e.Message;
+        }
+        finally
+        {
+            _codeBusy = false;
+        }
+    }
+
+    private async Task ResetClaimCodeAsync()
+    {
+        if (await Js.InvokeAsync<bool>("confirm", "Make a new invite code? The old one stops working.")) await LoadClaimCodeAsync(true);
+    }
+
+    private async Task CopyClaimCodeAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", _claimCode);
+            _copied = true;
+        }
+        catch (JSException) { }
     }
 
     public void Dispose() => _leaveGuard?.Dispose();

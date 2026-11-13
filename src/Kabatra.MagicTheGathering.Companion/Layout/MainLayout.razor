@@ -24,6 +24,10 @@ else if (!Library.SignedIn)
 {
     <SignInScreen />
 }
+else if (Library.MyProfile is null)
+{
+    <FirstSignInScreen />
+}
 else
 {
     @Body
