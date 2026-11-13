@@ -165,6 +165,18 @@ public class CardScanTests
     }
 
     [Fact]
+    public async Task GarbledTitle_FallsBackToThePrinting()
+    {
+        var (matcher, _) = NewMatcher(r => r.RequestUri!.AbsolutePath == "/cards/cmm/1"
+            ? FakeHandler.Json(CardJson("The Prismatic Piper", "cmm", "1"))
+            : NotFound);
+
+        var match = await matcher.MatchAsync(new ScanReading("The HEETIF HIE", "cmm", "1"));
+
+        Assert.Equal("The Prismatic Piper", match?.Card.Name);
+    }
+
+    [Fact]
     public async Task NothingMatches_ReturnsNull()
     {
         var (matcher, _) = NewMatcher(_ => NotFound);

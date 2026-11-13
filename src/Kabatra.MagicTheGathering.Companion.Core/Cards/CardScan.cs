@@ -146,10 +146,11 @@ public sealed class CardScanMatcher(CardCatalog catalog)
                 return new ScanMatch(printing, ExactPrinting: true);
         }
 
-        if (reading.Name is null) return null; // a printing whose name we couldn't check is too risky to guess
+        if (reading.Name is null) return null;
 
         var byName = await FindByNameAsync(reading.Name, ct);
-        if (byName is null) return null;
+        // A garbled title that matches nothing: the printing is still our best guess, and the user confirms it.
+        if (byName is null) return printing is null ? null : new ScanMatch(printing, ExactPrinting: true);
 
         // The number was misread but the set may still be right: look for this card in that set.
         if (reading.SetCode is { } set && !string.Equals(byName.SetCode, set, StringComparison.OrdinalIgnoreCase))
