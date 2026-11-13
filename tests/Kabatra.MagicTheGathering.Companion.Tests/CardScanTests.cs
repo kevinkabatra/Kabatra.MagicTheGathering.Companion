@@ -64,6 +64,13 @@ public class CardScanTests
         else Assert.True(score >= atLeast, $"{score} < {atLeast}");
     }
 
+    [Fact]
+    public void NameSimilarity_UsesTheCommaToTellLookalikesApart()
+    {
+        const string read = "Elspeth, Snight Brant"; // real OCR of the Duel Decks Elspeth, Knight-Errant
+        Assert.True(ScanTextParser.NameSimilarity(read, "Elspeth, Knight-Errant") > ScanTextParser.NameSimilarity(read, "Elspeth's Nightmare"));
+    }
+
     // ----- Matching against Scryfall -----
 
     private static string CardJson(string name, string set, string number) => $$"""
@@ -153,6 +160,43 @@ public class CardScanTests
     }
 
     [Fact]
+    public async Task GarbledEnding_RetriesAutocompleteWithShorterPrefixes()
+    {
+        // Real Tesseract output for the Duel Decks printing of Elspeth, Knight-Errant.
+        var (matcher, handler) = NewMatcher(r =>
+        {
+            var query = Uri.UnescapeDataString(r.RequestUri!.Query);
+            return r.RequestUri.AbsolutePath switch
+            {
+                "/cards/named" when query.Contains("fuzzy=Elspeth, Knight-Errant") => FakeHandler.Json(CardJson("Elspeth, Knight-Errant", "mma", "13")),
+                "/cards/autocomplete" when query.EndsWith("q=Elspeth") =>
+                    FakeHandler.Json("""{ "data": ["Elspeth Conquers Death", "Elspeth's Nightmare", "Elspeth, Knight-Errant", "Elspeth, Sun's Champion"] }"""),
+                // Scryfall really does offer this lookalike for the shorter prefix.
+                "/cards/autocomplete" when query.EndsWith("q=Elspeth, Snight") => FakeHandler.Json("""{ "data": ["Elspeth's Nightmare"] }"""),
+                "/cards/autocomplete" => FakeHandler.Json("""{ "data": [] }"""),
+                _ => NotFound,
+            };
+        });
+
+        var match = await matcher.MatchAsync(new ScanReading("Elspeth, Snight Brant", null, null));
+
+        Assert.Equal("Elspeth, Knight-Errant", match?.Card.Name);
+        var autocompletes = handler.Requests.Select(r => Uri.UnescapeDataString(r.Request.RequestUri!.Query))
+            .Where(q => q.StartsWith("?q=")).ToList();
+        Assert.Equal(["?q=Elspeth, Snight Brant", "?q=Elspeth, Snight", "?q=Elspeth"], autocompletes);
+    }
+
+    [Fact]
+    public async Task UnrelatedSuggestions_AreNotTaken()
+    {
+        var (matcher, _) = NewMatcher(r => r.RequestUri!.AbsolutePath == "/cards/autocomplete"
+            ? FakeHandler.Json("""{ "data": ["Elspeth Conquers Death"] }""")
+            : NotFound);
+
+        Assert.Null(await matcher.MatchAsync(new ScanReading("Elspeth Qqqqqq Zzzzzzzzz Xxxxxx", null, null)));
+    }
+
+    [Fact]
     public async Task PrintingWithoutReadableName_IsAccepted()
     {
         var (matcher, _) = NewMatcher(r => r.RequestUri!.AbsolutePath == "/cards/dmu/280"
@@ -174,6 +218,55 @@ public class CardScanTests
         var match = await matcher.MatchAsync(new ScanReading("The HEETIF HIE", "cmm", "1"));
 
         Assert.Equal("The Prismatic Piper", match?.Card.Name);
+    }
+
+    // ----- Choosing another printing -----
+
+    [Fact]
+    public async Task Printings_AreAllPaperPrintsOfTheCard_NewestFirst_AcrossPages()
+    {
+        var oracleId = Guid.NewGuid();
+        var handler = new FakeHandler((request, _) =>
+        {
+            var query = Uri.UnescapeDataString(request.RequestUri!.Query);
+            return query.Contains("page=1")
+                ? FakeHandler.Json($$"""{ "total_cards": 3, "has_more": true, "data": [{{CardJson("Elspeth, Knight-Errant", "mma", "13")}}, {{CardJson("Elspeth, Knight-Errant", "ddf", "4")}}] }""")
+                : FakeHandler.Json($$"""{ "total_cards": 3, "has_more": false, "data": [{{CardJson("Elspeth, Knight-Errant", "ala", "9")}}] }""");
+        });
+        var client = new ScryfallClient(new HttpClient(handler));
+
+        var printings = await client.GetPrintingsAsync(new CardInfo { Name = "Elspeth, Knight-Errant", OracleId = oracleId });
+
+        Assert.Equal(["mma", "ddf", "ala"], printings.Select(p => p.SetCode));
+        var first = Uri.UnescapeDataString(handler.Requests[0].Request.RequestUri!.Query);
+        Assert.Contains($"oracleid:{oracleId} game:paper", first);
+        Assert.Contains("unique=prints", first);
+        Assert.Contains("order=released", first);
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task Printings_StopAtTheCap()
+    {
+        var page = string.Join(",", Enumerable.Range(1, 5).Select(i => CardJson("Mountain", "set" + i, i.ToString())));
+        var handler = new FakeHandler((_, _) => FakeHandler.Json($$"""{ "total_cards": 999, "has_more": true, "data": [{{page}}] }"""));
+        var client = new ScryfallClient(new HttpClient(handler));
+
+        var printings = await client.GetPrintingsAsync(new CardInfo { Name = "Mountain", OracleId = Guid.NewGuid() }, maxCards: 8);
+
+        Assert.Equal(8, printings.Count);
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task Printings_WithoutAnOracleId_SearchByExactName()
+    {
+        var handler = new FakeHandler((_, _) => FakeHandler.Json("""{ "total_cards": 0, "has_more": false, "data": [] }"""));
+        var client = new ScryfallClient(new HttpClient(handler));
+
+        await client.GetPrintingsAsync(new CardInfo { Name = "Sol Ring" });
+
+        Assert.Contains("!\"Sol Ring\" game:paper", Uri.UnescapeDataString(handler.Requests[0].Request.RequestUri!.Query));
     }
 
     [Fact]

@@ -444,6 +444,31 @@ label.button.disabled { opacity: 0.5; pointer-events: none; }
 .scan-result { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 0.75rem; align-items: start; }
 .scan-result img { width: 100%; border-radius: 4.75% / 3.5%; }
 .scan-result-info { display: grid; gap: 0.35rem; min-width: 0; }
+.printing-picker { display: grid; gap: 0.5rem; }
+.printing-picker input { width: 100%; }
+.printing-picker ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.5rem;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    max-height: 50vh;
+    overflow-y: auto;
+}
+.printing-picker button.printing {
+    width: 100%;
+    display: grid;
+    gap: 0.15rem;
+    padding: 0.3rem;
+    text-align: left;
+    font-size: 0.75rem;
+    border-radius: 8px;
+    white-space: normal;
+}
+.printing-picker button.printing.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.printing-picker img { width: 100%; aspect-ratio: 146 / 204; object-fit: cover; border-radius: 4.75% / 3.5%; }
+.printing-picker .set-name { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
 /* ---------- Setup: deck pickers ---------- */
 .player-names .seat { flex: 1; min-width: 0; display: grid; gap: 0.3rem; }

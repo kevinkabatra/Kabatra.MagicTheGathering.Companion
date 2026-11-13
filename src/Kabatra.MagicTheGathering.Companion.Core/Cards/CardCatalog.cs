@@ -41,6 +41,13 @@ public sealed class CardCatalog(ScryfallClient scryfall, IKeyValueStore store, T
         return card;
     }
 
+    /// <summary>
+    /// Every paper printing of a card, newest first. Not cached: only the printing someone picks is
+    /// worth keeping, and it is cached when it's looked up for the deck.
+    /// </summary>
+    public Task<IReadOnlyList<CardInfo>> GetPrintingsAsync(CardInfo card, CancellationToken ct = default) =>
+        scryfall.GetPrintingsAsync(card, ct: ct);
+
     public async Task<CardInfo?> GetByPrintingAsync(string set, string collectorNumber, CancellationToken ct = default)
     {
         var cache = await LoadAsync();

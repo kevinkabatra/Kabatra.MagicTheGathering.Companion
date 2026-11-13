@@ -92,7 +92,8 @@ public static partial class ScanTextParser
         return 1 - Levenshtein(x, y) / (double)Math.Max(x.Length, y.Length);
     }
 
-    private static string Letters(string s) => new(s.Where(char.IsLetter).Select(char.ToLowerInvariant).ToArray());
+    // Commas are kept: OCR reads them reliably, and they tell "Elspeth, Knight-Errant" from "Elspeth's Nightmare".
+    private static string Letters(string s) => new(s.Where(c => char.IsLetter(c) || c == ',').Select(char.ToLowerInvariant).ToArray());
 
     private static int Levenshtein(string a, string b)
     {
@@ -134,6 +135,12 @@ public sealed class CardScanMatcher(CardCatalog catalog)
     /// <summary>How close the read title must be to the printing's name to trust the printing.</summary>
     public const double PrintingNameAgreement = 0.6;
 
+    /// <summary>How close an autocomplete suggestion must be to the read title to count as the card.</summary>
+    public const double MinSuggestionSimilarity = 0.5;
+
+    /// <summary>How many words may be dropped from the end of a garbled title when retrying autocomplete.</summary>
+    private const int MaxPrefixRetries = 2;
+
     public async Task<ScanMatch?> MatchAsync(ScanReading reading, CancellationToken ct = default)
     {
         if (reading.IsEmpty) return null;
@@ -167,10 +174,25 @@ public sealed class CardScanMatcher(CardCatalog catalog)
     {
         if (await TryAsync(() => catalog.FindByNameAsync(name, ct)) is { } card) return card;
 
-        // Scryfall's fuzzy match gives up on badly garbled names; autocomplete is more forgiving of a bad ending.
-        var suggestions = await TryAsync<IReadOnlyList<string>>(async () => await catalog.AutocompleteAsync(name, ct)) ?? [];
-        var best = suggestions.OrderByDescending(s => ScanTextParser.NameSimilarity(s, name)).FirstOrDefault();
-        return best is null ? null : await TryAsync(() => catalog.FindByNameAsync(best, ct));
+        // Scryfall's fuzzy match gives up on badly garbled names. Autocomplete matches the start of a name,
+        // so try the whole reading, then shorter prefixes ("Elspeth, Snight Brant" → "Elspeth, Snight" → "Elspeth"),
+        // and keep the suggestion closest to what was read across all of them. (Stopping at the first hit would
+        // take "Elspeth's Nightmare" from "Elspeth, Snight" before "Elspeth" offers "Elspeth, Knight-Errant".)
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var suggestions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var count = words.Length; count >= Math.Max(1, words.Length - MaxPrefixRetries); count--)
+        {
+            var prefix = string.Join(' ', words.Take(count)).TrimEnd(',', '-', '\'');
+            if (prefix.Length < 3) break;
+            suggestions.UnionWith(await TryAsync<IReadOnlyList<string>>(async () => await catalog.AutocompleteAsync(prefix, ct)) ?? []);
+        }
+
+        var best = suggestions
+            .Select(s => (Name: s, Score: ScanTextParser.NameSimilarity(s, name)))
+            .Where(s => s.Score >= MinSuggestionSimilarity)
+            .OrderByDescending(s => s.Score)
+            .FirstOrDefault();
+        return best.Name is null ? null : await TryAsync(() => catalog.FindByNameAsync(best.Name, ct));
     }
 
     private static bool NamesAgree(string read, CardInfo card) =>
