@@ -2,6 +2,8 @@
 
 A table-side helper for playing Magic: The Gathering with friends. It runs in any web browser — put it on a phone or tablet in the middle of the table and everyone can see and tap their own life total.
 
+**Play it now: https://kevinkabatra.github.io/Kabatra.MagicTheGathering.Companion/**
+
 Built in C# with Blazor WebAssembly (.NET 8), so the whole app runs in the browser with no server.
 
 ## Features
