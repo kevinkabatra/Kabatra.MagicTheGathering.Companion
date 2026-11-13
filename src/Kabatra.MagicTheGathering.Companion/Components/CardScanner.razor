@@ -15,7 +15,8 @@
         @if (_cameraError is null)
         {
             <div class="scanner-view">
-                <video @ref="_video" autoplay playsinline muted></video>
+                @* Sized inline too, so a stale cached stylesheet can never let the camera's full resolution blow out the dialog. *@
+                <video @ref="_video" autoplay playsinline muted style="width: 100%; height: 100%; max-width: 100%; object-fit: cover; display: block;"></video>
                 <div @ref="_guide" class="scanner-guide" aria-hidden="true">
                     <span class="title-zone"></span>
                     <span class="bottom-zone"></span>
@@ -112,7 +113,7 @@
         _matcher = new CardScanMatcher(Catalog);
         try
         {
-            _module = await Js.InvokeAsync<IJSObjectReference>("import", Nav.ToAbsoluteUri("js/card-scanner.js").ToString());
+            _module = await Js.InvokeAsync<IJSObjectReference>("import", Nav.ToAbsoluteUri($"js/card-scanner.js?v={BuildVersion}").ToString());
             await _module.InvokeVoidAsync("warmUp");
             _cameraError = await _module.InvokeAsync<string?>("startCamera", _video);
         }
@@ -245,6 +246,9 @@
             catch (JSDisconnectedException) { }
         }
     }
+
+    /// <summary>Changes with every build, so browsers fetch the new scanner script instead of a cached one.</summary>
+    private static readonly string BuildVersion = typeof(CardScanner).Assembly.ManifestModule.ModuleVersionId.ToString("N")[..12];
 
     private sealed record ScanTextDto(string? Title, string? Bottom);
 }
