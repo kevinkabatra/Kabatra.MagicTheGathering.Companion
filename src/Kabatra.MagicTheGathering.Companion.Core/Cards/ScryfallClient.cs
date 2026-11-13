@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -69,6 +70,15 @@ public sealed class ScryfallClient
     {
         if (string.IsNullOrWhiteSpace(name)) return null;
         var card = await GetAsync<CardDto>($"cards/named?fuzzy={Uri.EscapeDataString(name.Trim())}", ct);
+        return card is null ? null : ToCardInfo(card);
+    }
+
+    /// <summary>Finds one exact printing by set code and collector number, e.g. ("2x2", "117").</summary>
+    public async Task<CardInfo?> GetByPrintingAsync(string set, string collectorNumber, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(set) || string.IsNullOrWhiteSpace(collectorNumber)) return null;
+        var url = $"cards/{Uri.EscapeDataString(set.Trim().ToLowerInvariant())}/{Uri.EscapeDataString(collectorNumber.Trim())}";
+        var card = await GetAsync<CardDto>(url, ct);
         return card is null ? null : ToCardInfo(card);
     }
 
@@ -176,8 +186,21 @@ public sealed class ScryfallClient
             ImageNormal = images?.Normal,
             ArtCrop = images?.ArtCrop,
             ScryfallUri = c.ScryfallUri,
+            Prices = new CardPrices
+            {
+                Usd = ParsePrice(c.Prices?.Usd),
+                UsdFoil = ParsePrice(c.Prices?.UsdFoil),
+                UsdEtched = ParsePrice(c.Prices?.UsdEtched),
+                Eur = ParsePrice(c.Prices?.Eur),
+                EurFoil = ParsePrice(c.Prices?.EurFoil),
+                Tix = ParsePrice(c.Prices?.Tix),
+            },
         };
     }
+
+    /// <summary>Scryfall sends prices as strings like "0.25", or null when there's no price.</summary>
+    private static decimal? ParsePrice(string? value) =>
+        decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var price) ? price : null;
 
     // ----- Scryfall JSON shapes (only the fields we use) -----
 
@@ -190,6 +213,8 @@ public sealed class ScryfallClient
     private sealed record IdentifierDto(Guid? Id = null, string? Name = null, string? Set = null, string? CollectorNumber = null);
 
     internal sealed record ImageUrisDto(string? Small, string? Normal, string? ArtCrop);
+
+    internal sealed record PricesDto(string? Usd, string? UsdFoil, string? UsdEtched, string? Eur, string? EurFoil, string? Tix);
 
     internal sealed record CardFaceDto(string? Name, string? ManaCost, string? TypeLine, string? OracleText, Guid? OracleId, ImageUrisDto? ImageUris);
 
@@ -210,7 +235,8 @@ public sealed class ScryfallClient
         string? Rarity,
         string? ScryfallUri,
         ImageUrisDto? ImageUris,
-        List<CardFaceDto>? CardFaces);
+        List<CardFaceDto>? CardFaces,
+        PricesDto? Prices = null);
 }
 
 public sealed class ScryfallException(string message, HttpStatusCode status) : Exception(message)

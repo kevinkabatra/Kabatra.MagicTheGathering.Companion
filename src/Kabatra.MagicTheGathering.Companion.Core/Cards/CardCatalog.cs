@@ -7,7 +7,7 @@ public sealed record DeckResolveResult(IReadOnlyDictionary<Guid, CardInfo> Cards
 
 /// <summary>
 /// Card lookups for the app: Scryfall plus a cache kept on the device, so opening a deck
-/// doesn't refetch every card. Cached cards expire after a few days so ban-list changes show up.
+/// doesn't refetch every card. Cached cards expire after a few days so ban-list and price changes show up.
 /// </summary>
 public sealed class CardCatalog(ScryfallClient scryfall, IKeyValueStore store, TimeProvider? clock = null)
 {
@@ -37,6 +37,19 @@ public sealed class CardCatalog(ScryfallClient scryfall, IKeyValueStore store, T
         if (hit is not null) return hit.Card;
 
         var card = await scryfall.FindByNameAsync(name, ct);
+        if (card is not null) await RememberAsync([card]);
+        return card;
+    }
+
+    public async Task<CardInfo?> GetByPrintingAsync(string set, string collectorNumber, CancellationToken ct = default)
+    {
+        var cache = await LoadAsync();
+        var hit = cache.Values.FirstOrDefault(e => IsFresh(e)
+            && string.Equals(e.Card.SetCode, set, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(e.Card.CollectorNumber, collectorNumber, StringComparison.OrdinalIgnoreCase));
+        if (hit is not null) return hit.Card;
+
+        var card = await scryfall.GetByPrintingAsync(set, collectorNumber, ct);
         if (card is not null) await RememberAsync([card]);
         return card;
     }
@@ -122,7 +135,9 @@ public sealed class CardCatalog(ScryfallClient scryfall, IKeyValueStore store, T
         found[card.Id] = card;
     }
 
-    private bool IsFresh(CacheEntry entry) => _clock.GetUtcNow() - entry.FetchedAt < CacheLifetime;
+    // Entries without prices were cached by an older version of the app, so they're refetched.
+    private bool IsFresh(CacheEntry entry) =>
+        entry.Card.Prices is not null && _clock.GetUtcNow() - entry.FetchedAt < CacheLifetime;
 
     private async Task<Dictionary<Guid, CacheEntry>> LoadAsync()
     {

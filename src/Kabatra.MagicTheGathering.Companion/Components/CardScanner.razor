@@ -1,0 +1,250 @@
+@* Scan physical cards with the camera (or a photo) and add them to the deck. Text is read on the device;
+   only the card name, set and number are looked up on Scryfall. *@
+@implements IAsyncDisposable
+@inject IJSRuntime Js
+@inject NavigationManager Nav
+@inject CardCatalog Catalog
+
+<div class="overlay scanner-overlay" role="dialog" aria-label="Scan cards">
+    <div class="dialog scanner">
+        <div class="row spread">
+            <h2>Scan cards</h2>
+            <button @onclick="CloseAsync">Done</button>
+        </div>
+
+        @if (_cameraError is null)
+        {
+            <div class="scanner-view">
+                <video @ref="_video" autoplay playsinline muted></video>
+                <div @ref="_guide" class="scanner-guide" aria-hidden="true">
+                    <span class="title-zone"></span>
+                    <span class="bottom-zone"></span>
+                </div>
+            </div>
+            <p class="muted small">Fill the frame with the card, title at the top. Good light and no glare help.</p>
+        }
+        else
+        {
+            <p class="notice">@_cameraError</p>
+        }
+
+        <div class="row">
+            @if (_cameraError is null)
+            {
+                <button class="primary" @onclick="ScanVideoAsync" disabled="@_busy">@(_busy ? "Reading…" : "Scan")</button>
+            }
+            <label class="button file-button @(_busy ? "disabled" : "")">
+                Use a photo
+                <input @ref="_file" type="file" accept="image/*" capture="environment" @onchange="ScanFileAsync" disabled="@_busy" />
+            </label>
+        </div>
+
+        @if (_status is not null)
+        {
+            <p class="@(_statusIsError ? "error" : "muted") small">@_status</p>
+        }
+
+        @if (_match is { } match)
+        {
+            <div class="scan-result">
+                @if (match.Card.ImageSmall is not null) { <img src="@match.Card.ImageSmall" alt="@match.Card.Name" /> }
+                <div class="scan-result-info">
+                    <strong>@match.Card.Name</strong>
+                    <span class="muted small">
+                        @match.Card.SetName (@match.Card.SetCode.ToUpperInvariant()) #@match.Card.CollectorNumber
+                        @if (!match.ExactPrinting) { <span> · printing not read, using a default</span> }
+                    </span>
+                    <div class="actions">
+                        <button class="primary" @onclick="() => AddAsync(DeckSection.Main)">+ Main</button>
+                        @if (HasCommander)
+                        {
+                            <button @onclick="() => AddAsync(DeckSection.Commander)" title="Add as @CommanderLabel">★ @CommanderLabel</button>
+                        }
+                        else
+                        {
+                            <button @onclick="() => AddAsync(DeckSection.Sideboard)">+ Sideboard</button>
+                        }
+                        <button @onclick="NotIt">Not it</button>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_showManual)
+        {
+            <form class="inline-form" @onsubmit="LookUpManualAsync">
+                <input @bind="_manualName" placeholder="Card name" aria-label="Card name" autocomplete="off" />
+                <button type="submit" disabled="@(_busy || string.IsNullOrWhiteSpace(_manualName))">Look up</button>
+            </form>
+        }
+
+        @if (_added.Count > 0)
+        {
+            <p class="muted small">Added: @string.Join(", ", _added.GroupBy(n => n).Select(g => g.Count() > 1 ? $"{g.Key} ×{g.Count()}" : g.Key))</p>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public EventCallback<(CardInfo Card, DeckSection Section)> OnAdd { get; set; }
+    [Parameter, EditorRequired] public EventCallback OnClose { get; set; }
+    [Parameter] public bool HasCommander { get; set; }
+    [Parameter] public string CommanderLabel { get; set; } = "commander";
+
+    private IJSObjectReference? _module;
+    private ElementReference _video;
+    private ElementReference _guide;
+    private ElementReference _file;
+    private CardScanMatcher? _matcher;
+
+    private string? _cameraError;
+    private bool _busy;
+    private string? _status;
+    private bool _statusIsError;
+    private ScanMatch? _match;
+    private bool _showManual;
+    private string _manualName = "";
+    private readonly List<string> _added = [];
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _matcher = new CardScanMatcher(Catalog);
+        try
+        {
+            _module = await Js.InvokeAsync<IJSObjectReference>("import", Nav.ToAbsoluteUri("js/card-scanner.js").ToString());
+            await _module.InvokeVoidAsync("warmUp");
+            _cameraError = await _module.InvokeAsync<string?>("startCamera", _video);
+        }
+        catch (JSException e)
+        {
+            _cameraError = $"Couldn't start the scanner: {e.Message}";
+        }
+        StateHasChanged();
+    }
+
+    private Task ScanVideoAsync() => ScanAsync(m => m.InvokeAsync<ScanTextDto?>("scanVideo", _video, _guide));
+
+    private Task ScanFileAsync() => ScanAsync(m => m.InvokeAsync<ScanTextDto?>("scanFile", _file));
+
+    private async Task ScanAsync(Func<IJSObjectReference, ValueTask<ScanTextDto?>> read)
+    {
+        if (_module is null || _matcher is null || _busy) return;
+        _busy = true;
+        _match = null;
+        _showManual = false;
+        SetStatus("Reading the card… (the first scan downloads the text reader, a few MB)");
+        try
+        {
+            var text = await read(_module);
+            if (text is null) { SetStatus(null); return; }
+
+            var reading = ScanTextParser.Parse(new ScanText(text.Title, text.Bottom));
+            if (reading.IsEmpty)
+            {
+                Fail("Couldn't read any text. Move closer, steady the card, and avoid glare.");
+                return;
+            }
+
+            SetStatus($"Read {Describe(reading)}. Looking it up…");
+            StateHasChanged();
+            _match = await _matcher.MatchAsync(reading);
+            if (_match is null)
+            {
+                _manualName = reading.Name ?? "";
+                _showManual = true;
+                Fail($"Read {Describe(reading)}, but no card matched. Try again, or type the name.");
+            }
+            else
+            {
+                SetStatus($"Read {Describe(reading)}.");
+            }
+        }
+        catch (JSException e)
+        {
+            Fail(e.Message);
+        }
+        catch (HttpRequestException)
+        {
+            Fail("Couldn't reach Scryfall. Check your connection.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task LookUpManualAsync()
+    {
+        if (_matcher is null || string.IsNullOrWhiteSpace(_manualName)) return;
+        _busy = true;
+        try
+        {
+            _match = await _matcher.MatchAsync(new ScanReading(_manualName.Trim(), null, null));
+            if (_match is null) Fail($"No card named “{_manualName}”.");
+            else { _showManual = false; SetStatus(null); }
+        }
+        catch (HttpRequestException)
+        {
+            Fail("Couldn't reach Scryfall. Check your connection.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task AddAsync(DeckSection section)
+    {
+        if (_match is not { } match) return;
+        await OnAdd.InvokeAsync((match.Card, section));
+        _added.Add(match.Card.Name);
+        _match = null;
+        SetStatus($"Added {match.Card.Name}. Ready for the next card.");
+    }
+
+    private void NotIt()
+    {
+        _manualName = _match?.Card.Name ?? _manualName;
+        _match = null;
+        _showManual = true;
+        SetStatus("Scan again, or type the name.");
+    }
+
+    private static string Describe(ScanReading r)
+    {
+        var parts = new List<string>();
+        if (r.Name is not null) parts.Add($"“{r.Name}”");
+        if (r.SetCode is not null) parts.Add(r.SetCode.ToUpperInvariant() + (r.CollectorNumber is null ? "" : $" #{r.CollectorNumber}"));
+        return parts.Count == 0 ? "nothing" : string.Join(" · ", parts);
+    }
+
+    private void SetStatus(string? message) { _status = message; _statusIsError = false; }
+    private void Fail(string message) { _status = message; _statusIsError = true; }
+
+    private async Task CloseAsync()
+    {
+        await StopCameraAsync();
+        await OnClose.InvokeAsync();
+    }
+
+    private async Task StopCameraAsync()
+    {
+        if (_module is null) return;
+        try { await _module.InvokeVoidAsync("stopCamera", _video); }
+        catch (JSDisconnectedException) { }
+        catch (JSException) { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await StopCameraAsync();
+        if (_module is not null)
+        {
+            try { await _module.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+        }
+    }
+
+    private sealed record ScanTextDto(string? Title, string? Bottom);
+}

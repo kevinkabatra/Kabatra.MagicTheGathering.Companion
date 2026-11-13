@@ -57,6 +57,10 @@
                     <span class="muted small">
                         @(_deck.Count(DeckSection.Main) + _deck.Count(DeckSection.Commander)) cards
                         @if (_deck.Count(DeckSection.Sideboard) > 0) { <span> + @_deck.Count(DeckSection.Sideboard) sideboard</span> }
+                        @if (!_resolving && DeckWorth() is { Usd: > 0 } worth)
+                        {
+                            <span class="deck-value" title="@WorthTitle(worth)"> · ≈ @DeckValue.FormatUsd(worth.Usd)</span>
+                        }
                         @if (_dirty) { <span class="unsaved"> · unsaved changes</span> }
                     </span>
                     <div class="actions">
@@ -121,7 +125,10 @@
             </section>
 
             <section class="search-side">
-                <h2>Add cards</h2>
+                <div class="row spread">
+                    <h2>Add cards</h2>
+                    <button @onclick="() => _showScanner = true" title="Scan physical cards with the camera">📷 Scan cards</button>
+                </div>
                 <CardSearch OnAdd="AddCard" HasCommander="format.HasCommander" CommanderLabel="@format.CommanderLabel"
                             FormatKey="@format.ScryfallKey" FormatName="@format.Name" />
             </section>
@@ -142,6 +149,12 @@
             </div>
         }
 
+        @if (_showScanner)
+        {
+            <CardScanner OnAdd="AddCard" OnClose="() => _showScanner = false"
+                         HasCommander="format.HasCommander" CommanderLabel="@format.CommanderLabel" />
+        }
+
         <CardPreview Card="_preview" OnClose="() => _preview = null" />
     }
 </div>
@@ -157,6 +170,7 @@
     private bool _saving;
     private bool _resolving;
     private bool _showExport;
+    private bool _showScanner;
     private bool _copied;
     private string? _loadError;
     private string? _saveError;
@@ -203,6 +217,14 @@
             .GroupBy(l => CardOf(l)?.MainType ?? "Other")
             .OrderBy(g => g.Key == "Land" ? 99 : CardInfo.TypeOrder.ToList().IndexOf(g.Key) is var i and >= 0 ? i : 98)
             .Select(g => (IGrouping<string, DeckCard>)new Grouping(Plural(g.Key), g));
+
+    /// <summary>Value of the deck you'd sleeve up: commander and main deck, not the sideboard.</summary>
+    private DeckValue DeckWorth() =>
+        DeckValue.Of(_deck!.Cards.Where(l => l.Section != DeckSection.Sideboard), _cards);
+
+    private static string WorthTitle(DeckValue worth) =>
+        "Market value from Scryfall, excluding the sideboard"
+        + (worth.UnpricedCards > 0 ? $". {worth.UnpricedCards} card(s) have no price and aren't counted." : ".");
 
     private CardInfo? CardOf(DeckCard line) => line.ScryfallId is { } id && _cards.TryGetValue(id, out var c) ? c : null;
 

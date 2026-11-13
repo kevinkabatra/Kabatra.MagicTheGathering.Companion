@@ -41,6 +41,16 @@ public sealed partial record CardInfo
     public string? ArtCrop { get; init; }
     public string? ScryfallUri { get; init; }
 
+    /// <summary>Scryfall's market prices for this printing. Null for cards cached before prices were kept.</summary>
+    public CardPrices? Prices { get; init; }
+
+    /// <summary>
+    /// The card's value in US dollars: the non-foil price, or the foil/etched price for printings
+    /// that only exist as foils. Null when Scryfall has no price.
+    /// </summary>
+    [JsonIgnore]
+    public decimal? UsdPrice => Prices is { } p ? p.Usd ?? p.UsdFoil ?? p.UsdEtched : null;
+
     /// <summary>The name of the front face, which is what most deck lists use for double-faced cards.</summary>
     [JsonIgnore]
     public string FrontName => Name.Split(" // ")[0];
@@ -111,4 +121,15 @@ public sealed partial record CardInfo
 
     [GeneratedRegex(@"A deck can have up to (\w+) cards named", RegexOptions.IgnoreCase)]
     private static partial Regex UpToRegex();
+}
+
+/// <summary>Market prices from Scryfall (sourced from TCGplayer, Cardmarket and MTGO), updated daily.</summary>
+public sealed record CardPrices
+{
+    public decimal? Usd { get; init; }
+    public decimal? UsdFoil { get; init; }
+    public decimal? UsdEtched { get; init; }
+    public decimal? Eur { get; init; }
+    public decimal? EurFoil { get; init; }
+    public decimal? Tix { get; init; }
 }
