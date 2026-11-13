@@ -26,20 +26,62 @@ public class CloudTests
         Assert.False(client.IsSignedIn);
     }
 
+    /// <summary>Goes through an OAuth sign-in: start it, then come back with a code.</summary>
+    private static async Task SignInAsync(SupabaseClient client)
+    {
+        await client.BeginSignInAsync("google", "https://site/app/decks");
+        Assert.True(await client.TryCompleteSignInAsync(new Uri("https://site/app/decks?code=abc123")));
+    }
+
+    private static bool IsPkceExchange(HttpRequestMessage r) =>
+        r.RequestUri!.AbsolutePath == "/auth/v1/token" && r.RequestUri.Query.Contains("grant_type=pkce");
+
     [Fact]
-    public async Task SignInLink_RedirectFragmentCreatesAndSavesSession()
+    public async Task BeginSignIn_PointsAtTheProvidersAuthorizePage_WithAPkceChallenge()
     {
         var store = new MemoryKeyValueStore();
-        var client = new SupabaseClient(new HttpClient(new FakeHandler((_, _) => FakeHandler.Json("{}"))), Options, store);
+        var client = new SupabaseClient(new HttpClient(), Options, store);
+
+        var url = new Uri(await client.BeginSignInAsync(" Apple ", "https://site/app/decks?x=1"));
+
+        Assert.Equal("https://example.supabase.co/auth/v1/authorize", url.GetLeftPart(UriPartial.Path));
+        Assert.Contains("provider=apple", url.Query);
+        Assert.Contains("redirect_to=https%3A%2F%2Fsite%2Fapp%2Fdecks%3Fx%3D1", url.Query);
+        Assert.Contains("code_challenge_method=s256", url.Query);
+
+        // The challenge is the SHA-256 of the verifier kept on the device, base64url-encoded.
+        var verifier = await store.GetAsync("mtg-companion.supabase-pkce-verifier");
+        var expected = Convert.ToBase64String(System.Security.Cryptography.SHA256.HashData(Encoding.ASCII.GetBytes(verifier!)))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        Assert.Contains($"code_challenge={expected}&", url.Query);
+    }
+
+    [Fact]
+    public async Task CompleteSignIn_ExchangesTheCodeWithTheVerifier_AndSavesTheSession()
+    {
+        var store = new MemoryKeyValueStore();
+        var handler = new FakeHandler((request, _) => IsPkceExchange(request)
+            ? FakeHandler.Json($$"""{ "access_token": "{{Jwt(UserId, "a@b.c")}}", "refresh_token": "r1", "expires_in": 3600, "user": { "id": "{{UserId}}", "email": "a@b.c" } }""")
+            : FakeHandler.Json("{}"));
+        var client = new SupabaseClient(new HttpClient(handler), Options, store);
         var changed = 0;
         client.SessionChanged += () => changed++;
 
-        var uri = new Uri($"https://site/app/#access_token={Jwt(UserId, "a@b.c")}&expires_in=3600&refresh_token=r1&token_type=bearer&type=magiclink");
-        Assert.True(await client.TryCompleteSignInAsync(uri));
+        await client.BeginSignInAsync("google", "https://site/app/");
+        var verifier = await store.GetAsync("mtg-companion.supabase-pkce-verifier");
+        Assert.True(await client.TryCompleteSignInAsync(new Uri("https://site/app/?code=abc123")));
+
+        var (request, body) = handler.Requests.Single();
+        Assert.Contains("\"auth_code\":\"abc123\"", body);
+        Assert.Contains($"\"code_verifier\":\"{verifier}\"", body);
+        Assert.Equal("sb_publishable_test123", request.Headers.GetValues("apikey").Single());
+        // Publishable keys aren't JWTs, so they must never be sent as a Bearer token.
+        Assert.Null(request.Headers.Authorization);
 
         Assert.Equal(UserId, client.Session!.UserId);
         Assert.Equal("a@b.c", client.Session.Email);
         Assert.Equal(1, changed);
+        Assert.Null(await store.GetAsync("mtg-companion.supabase-pkce-verifier")); // single use
 
         // A fresh client picks the session back up from storage.
         var restored = new SupabaseClient(new HttpClient(), Options, store);
@@ -48,48 +90,68 @@ public class CloudTests
     }
 
     [Fact]
-    public async Task SignInLink_ErrorInFragmentThrows_AndOtherFragmentsAreIgnored()
-    {
-        var client = new SupabaseClient(new HttpClient(), Options, new MemoryKeyValueStore());
-        await Assert.ThrowsAsync<SupabaseException>(() =>
-            client.TryCompleteSignInAsync(new Uri("https://site/#error=access_denied&error_description=Email+link+is+invalid+or+has+expired")));
-        Assert.False(await client.TryCompleteSignInAsync(new Uri("https://site/decks#top")));
-    }
-
-    [Fact]
-    public async Task SendSignInEmail_PostsToOtpWithRedirectAndApiKey()
+    public async Task CompleteSignIn_IgnoresCodesItDidntAskFor_AndOrdinaryAddresses()
     {
         var handler = new FakeHandler((_, _) => FakeHandler.Json("{}"));
         var client = new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore());
 
-        await client.SendSignInEmailAsync(" me@example.com ", "https://site/app/");
+        Assert.False(await client.TryCompleteSignInAsync(new Uri("https://site/app/?code=not-ours")));
+        Assert.False(await client.TryCompleteSignInAsync(new Uri("https://site/decks#top")));
+        Assert.Empty(handler.Requests);
+    }
 
-        var (request, body) = handler.Requests.Single();
-        Assert.Equal("https://example.supabase.co/auth/v1/otp?redirect_to=https%3A%2F%2Fsite%2Fapp%2F", request.RequestUri!.ToString());
-        Assert.Equal("sb_publishable_test123", request.Headers.GetValues("apikey").Single());
-        // Publishable keys aren't JWTs, so they must never be sent as a Bearer token.
-        Assert.Null(request.Headers.Authorization);
-        Assert.Contains("\"email\":\"me@example.com\"", body);
-        Assert.Contains("\"create_user\":true", body);
+    [Theory]
+    [InlineData("?error=access_denied&error_description=User+cancelled", "User cancelled")]
+    [InlineData("?error=access_denied", "Sign-in was cancelled.")]
+    [InlineData("#error=server_error&error_description=User+is+banned", SupabaseClient.BlockedMessage)]
+    public async Task CompleteSignIn_ProviderErrorsThrowReadableMessages(string suffix, string message)
+    {
+        var client = new SupabaseClient(new HttpClient(), Options, new MemoryKeyValueStore());
+        var error = await Assert.ThrowsAsync<SupabaseException>(() => client.TryCompleteSignInAsync(new Uri("https://site/app/" + suffix)));
+        Assert.Equal(message, error.Message);
+    }
+
+    [Fact]
+    public void Providers_DefaultToGoogleAndApple_AndAcceptOthersByName()
+    {
+        Assert.Equal(["google", "apple"], AuthProviders.From(null).Select(p => p.Id));
+        Assert.Equal(["Google", "Apple"], AuthProviders.From([]).Select(p => p.Label));
+
+        var custom = AuthProviders.From([" GitHub ", "github", "", "keycloak"]);
+        Assert.Equal([new AuthProvider("github", "GitHub"), new AuthProvider("keycloak", "Keycloak")], custom);
     }
 
     [Fact]
     public async Task SignedInRequests_SendUserTokenAsBearer_AndKeyOnlyAsApiKey()
     {
-        var handler = new FakeHandler((request, _) => request.RequestUri!.AbsolutePath == "/auth/v1/verify"
+        var handler = new FakeHandler((request, _) => IsPkceExchange(request)
             ? FakeHandler.Json($$"""{ "access_token": "{{Jwt(UserId, "a@b.c")}}", "refresh_token": "r1", "expires_in": 3600 }""")
             : FakeHandler.Json("[]"));
         var client = new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore());
 
-        await client.VerifyEmailCodeAsync("a@b.c", "123456");
+        await SignInAsync(client);
         await client.GetAsync<List<Playgroup>>("playgroups");
 
-        var verify = handler.Requests[0].Request;
-        Assert.Null(verify.Headers.Authorization);
         var rest = handler.Requests[1].Request;
         Assert.Equal("sb_publishable_test123", rest.Headers.GetValues("apikey").Single());
         Assert.Equal("Bearer", rest.Headers.Authorization!.Scheme);
         Assert.Equal(client.Session!.AccessToken, rest.Headers.Authorization.Parameter);
+    }
+
+    [Fact]
+    public async Task OfflineAtStartup_KeepsTheSavedSession()
+    {
+        var clock = new ManualClock(DateTimeOffset.Parse("2026-01-01T00:00:00Z"));
+        var store = new MemoryKeyValueStore();
+        var online = new SupabaseClient(new HttpClient(new FakeHandler((_, _) => FakeHandler.Json(
+            $$"""{ "access_token": "{{Jwt(UserId, "a@b.c")}}", "refresh_token": "r1", "expires_in": 60 }"""))), Options, store, clock);
+        await SignInAsync(online);
+
+        clock.Now += TimeSpan.FromHours(2); // expired, so starting up tries to refresh
+        var offline = new SupabaseClient(new HttpClient(new FakeHandler((_, _) => throw new HttpRequestException("offline"))), Options, store, clock);
+        await offline.InitializeAsync();
+
+        Assert.True(offline.IsSignedIn);
     }
 
     [Fact]
@@ -123,13 +185,13 @@ public class CloudTests
         var clock = new ManualClock(DateTimeOffset.Parse("2026-01-01T00:00:00Z"));
         var handler = new FakeHandler((request, _) => request.RequestUri!.AbsolutePath switch
         {
-            "/auth/v1/verify" => FakeHandler.Json($$"""{ "access_token": "{{Jwt(UserId, "a@b.c")}}", "refresh_token": "r1", "expires_in": 3600, "user": { "id": "{{UserId}}", "email": "a@b.c" } }"""),
+            "/auth/v1/token" when IsPkceExchange(request) => FakeHandler.Json($$"""{ "access_token": "{{Jwt(UserId, "a@b.c")}}", "refresh_token": "r1", "expires_in": 3600, "user": { "id": "{{UserId}}", "email": "a@b.c" } }"""),
             "/auth/v1/token" => FakeHandler.Json($$"""{ "access_token": "{{Jwt(UserId, "a@b.c")}}", "refresh_token": "r2", "expires_in": 3600 }"""),
             _ => FakeHandler.Json("[]"),
         });
         var client = new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore(), clock);
 
-        await client.VerifyEmailCodeAsync("a@b.c", "123456");
+        await SignInAsync(client);
         Assert.Equal("r1", client.Session!.RefreshToken);
 
         clock.Now += TimeSpan.FromMinutes(59.5);
@@ -137,7 +199,7 @@ public class CloudTests
 
         Assert.Equal("r2", client.Session!.RefreshToken);
         var paths = handler.Requests.Select(r => r.Request.RequestUri!.AbsolutePath).ToList();
-        Assert.Equal(["/auth/v1/verify", "/auth/v1/token", "/rest/v1/playgroups"], paths);
+        Assert.Equal(["/auth/v1/token", "/auth/v1/token", "/rest/v1/playgroups"], paths);
         Assert.Contains("refresh_token=", handler.Requests[1].Request.RequestUri!.Query.Replace("grant_type=refresh_token", "refresh_token="));
     }
 
@@ -145,11 +207,11 @@ public class CloudTests
     public async Task RevokedRefreshToken_SignsOut()
     {
         var clock = new ManualClock(DateTimeOffset.Parse("2026-01-01T00:00:00Z"));
-        var handler = new FakeHandler((request, _) => request.RequestUri!.AbsolutePath == "/auth/v1/verify"
+        var handler = new FakeHandler((request, _) => IsPkceExchange(request)
             ? FakeHandler.Json($$"""{ "access_token": "{{Jwt(UserId, "a@b.c")}}", "refresh_token": "r1", "expires_in": 60 }""")
             : FakeHandler.Json("""{ "error_description": "Invalid Refresh Token" }""", HttpStatusCode.BadRequest));
         var client = new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore(), clock);
-        await client.VerifyEmailCodeAsync("a@b.c", "123456");
+        await SignInAsync(client);
 
         var error = await Assert.ThrowsAsync<SupabaseException>(() => client.GetAsync<List<Playgroup>>("playgroups"));
         Assert.Equal(401, error.Status);
@@ -184,24 +246,5 @@ public class CloudTests
         Assert.DoesNotContain("updated_at", sent);
         Assert.Equal("Krenko, Mob Boss", saved.Commanders.Single().Name);
         Assert.Equal("resolution=merge-duplicates,return=representation", handler.Requests.Last().Request.Headers.GetValues("Prefer").Single());
-    }
-
-    [Fact]
-    public async Task LocalDeckStore_SavesListsAndDeletes()
-    {
-        var store = new LocalDeckStore(new MemoryKeyValueStore());
-        var deck = new Deck { Name = "Burn", Format = DeckFormat.Modern.Id };
-        deck.Add(TestCards.Bolt, DeckSection.Main, 4);
-
-        await store.SaveAsync(deck);
-        deck.Name = "Changed after saving"; // the store keeps its own copy
-        var loaded = await store.GetAsync(deck.Id);
-
-        Assert.Equal("Burn", loaded!.Name);
-        Assert.Equal(4, loaded.Count(DeckSection.Main));
-        Assert.Single(await store.ListAsync());
-
-        await store.DeleteAsync(deck.Id);
-        Assert.Empty(await store.ListAsync());
     }
 }

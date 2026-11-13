@@ -1,57 +1,16 @@
-@* Sign-in and playgroup controls for shared decks. Shows nothing when cloud sync isn't configured. *@
+@* Playgroup controls: pick, join or create a playgroup. Sign-in itself happens in MainLayout. *@
 @implements IDisposable
 @inject DeckLibrary Library
 @inject IJSRuntime Js
-@inject SupabaseOptions SupabaseSettings
 
-@if (SupabaseSettings.Problem is { } problem)
-{
-    <p class="notice error" role="alert">Shared decks are turned off: @problem Decks are being saved on this device for now.</p>
-}
-else if (!Library.CloudEnabled)
-{
-    <p class="notice">
-        Decks are saved on this device only. To share them with your playgroup, connect a Supabase project
-        (see the README).
-    </p>
-}
-else if (!Library.Ready)
-{
-    <p class="muted">Checking your sign-in…</p>
-}
-else if (!Library.SignedIn)
-{
-    <section class="panel account">
-        <h2>Sign in to share decks</h2>
-        <p class="muted">We'll email you a sign-in link. No password needed.</p>
-        @if (!_emailSent)
-        {
-            <form class="inline-form" @onsubmit="SendAsync">
-                <input type="email" required placeholder="you@example.com" autocomplete="email" @bind="_email" aria-label="Email" />
-                <button class="primary" type="submit" disabled="@_busy">Email me a link</button>
-            </form>
-        }
-        else
-        {
-            <p>Check <strong>@_email</strong> and tap the link. If the email has a 6-digit code, you can type it here instead
-               (handy if the link opens in a different browser).</p>
-            <form class="inline-form" @onsubmit="VerifyAsync">
-                <input inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="Code" @bind="_code" aria-label="Sign-in code" />
-                <button class="primary" type="submit" disabled="@(_busy || string.IsNullOrWhiteSpace(_code))">Sign in</button>
-                <button type="button" @onclick="() => _emailSent = false">Use another email</button>
-            </form>
-        }
-        <ErrorMessage />
-    </section>
-}
-else if (Library.Groups.Count == 0 || _managing)
+@if (Library.Groups.Count == 0 || _managing)
 {
     <section class="panel account">
         <div class="row spread">
             <h2>@(Library.Groups.Count == 0 ? "Join your playgroup" : "Playgroups")</h2>
             @if (Library.Groups.Count > 0) { <button @onclick="() => _managing = false">Done</button> }
         </div>
-        <p class="muted">Decks are shared with everyone in a playgroup. Signed in as @Library.Email.</p>
+        <p class="muted">Decks are shared with everyone in a playgroup. Signed in as @(Library.Email ?? "you").</p>
 
         <label class="field">
             <span>Your name in the group</span>
@@ -102,12 +61,9 @@ else if (Library.CurrentGroup is { } group)
 }
 
 @code {
-    private string _email = "";
-    private string _code = "";
     private string _displayName = "";
     private string _inviteCode = "";
     private string _groupName = "";
-    private bool _emailSent;
     private bool _busy;
     private bool _managing;
     private bool _copied;
@@ -121,8 +77,6 @@ else if (Library.CurrentGroup is { } group)
     private void OnChanged() => InvokeAsync(StateHasChanged);
     public void Dispose() => Library.Changed -= OnChanged;
 
-    private Task SendAsync() => Busy(async () => { await Library.SendSignInEmailAsync(_email); _emailSent = true; });
-    private Task VerifyAsync() => Busy(() => Library.VerifyCodeAsync(_email, _code));
     private Task JoinAsync() => Busy(async () => { await Library.JoinGroupAsync(_inviteCode, _displayName); _managing = false; _inviteCode = ""; });
     private Task CreateAsync() => Busy(async () => { await Library.CreateGroupAsync(_groupName, _displayName); _managing = false; _groupName = ""; });
     private Task SignOutAsync() => Busy(() => { _managing = false; return Library.SignOutAsync(); });

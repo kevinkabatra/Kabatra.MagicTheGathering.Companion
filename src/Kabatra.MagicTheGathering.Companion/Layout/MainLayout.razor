@@ -1,9 +1,42 @@
 ﻿@inherits LayoutComponentBase
+@implements IDisposable
 @inject DeckLibrary Library
+@inject SupabaseOptions SupabaseSettings
 
-@Body
+@if (SupabaseSettings.Problem is { } problem)
+{
+    <div class="page"><p class="notice error" role="alert">The app can't start: @problem</p></div>
+}
+else if (!Library.Configured)
+{
+    <div class="page">
+        <p class="notice error" role="alert">
+            The app isn't connected to a Supabase project yet. Put the project's URL and publishable key in
+            wwwroot/appsettings.json (see the README).
+        </p>
+    </div>
+}
+else if (!Library.Ready)
+{
+    <p class="muted center">Checking your sign-in…</p>
+}
+else if (!Library.SignedIn)
+{
+    <SignInScreen />
+}
+else
+{
+    @Body
+}
 
 @code {
-    // Done here so a sign-in link works whichever page it lands on.
-    protected override Task OnInitializedAsync() => Library.InitializeAsync();
+    // Done here so a sign-in redirect works whichever page it lands on, and every page waits for sign-in.
+    protected override Task OnInitializedAsync()
+    {
+        Library.Changed += OnChanged;
+        return Library.InitializeAsync();
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Library.Changed -= OnChanged;
 }

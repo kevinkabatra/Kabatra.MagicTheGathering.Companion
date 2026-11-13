@@ -24,7 +24,7 @@ builder.Services.AddScoped<CardCatalog>();
 builder.Services.AddScoped(sp => new PreconCatalog(
     new HttpClient { BaseAddress = PreconCatalog.DefaultBaseAddress }, sp.GetRequiredService<IKeyValueStore>()));
 
-// Shared decks in Supabase. Leave Supabase:Url / Supabase:PublishableKey empty in appsettings.json to keep decks on the device.
+// Supabase holds everyone's profiles, playgroups, decks and play history; signing in is required.
 // Supabase:AnonKey is still read so a project on the legacy keys keeps working until it migrates.
 var supabase = new SupabaseOptions(
     builder.Configuration["Supabase:Url"],
@@ -32,6 +32,10 @@ var supabase = new SupabaseOptions(
 builder.Services.AddSingleton(supabase);
 builder.Services.AddScoped(sp => new SupabaseClient(new HttpClient(), supabase, sp.GetRequiredService<IKeyValueStore>()));
 builder.Services.AddScoped<PlaygroupService>();
+
+// Sign-in providers, e.g. "Auth": { "Providers": ["google", "apple"] }. Each must be turned on in Supabase Auth.
+var providers = AuthProviders.From(builder.Configuration.GetSection("Auth:Providers").GetChildren().Select(c => c.Value));
+builder.Services.AddSingleton(providers);
 builder.Services.AddScoped<DeckLibrary>();
 builder.Services.AddScoped(sp => new GameRecorder(sp.GetRequiredService<IKeyValueStore>()));
 builder.Services.AddScoped(sp => new PlayHistory(sp.GetRequiredService<DeckLibrary>(), sp.GetRequiredService<GameRecorder>()));

@@ -4,7 +4,7 @@ using Kabatra.MagicTheGathering.Companion.Core.Decks;
 
 namespace Kabatra.MagicTheGathering.Companion.Core.Profiles;
 
-/// <summary>Where player profiles are kept: a playgroup in Supabase, or this device.</summary>
+/// <summary>Where player profiles are kept.</summary>
 public interface IProfileStore
 {
     Task<IReadOnlyList<PlayerProfile>> ListAsync(CancellationToken ct = default);
@@ -14,29 +14,6 @@ public interface IProfileStore
     Task<PlayerProfile> SaveAsync(PlayerProfile profile, CancellationToken ct = default);
 
     Task DeleteAsync(Guid id, CancellationToken ct = default);
-}
-
-/// <summary>Profiles saved in this browser only, for when cloud sync isn't set up.</summary>
-public sealed class LocalProfileStore(IKeyValueStore store, TimeProvider? clock = null) : IProfileStore
-{
-    private readonly LocalJsonList<PlayerProfile> _list = new(store, "mtg-companion.profiles", p => p.Id);
-    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
-
-    public async Task<IReadOnlyList<PlayerProfile>> ListAsync(CancellationToken ct = default) =>
-        (await _list.LoadAsync()).OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
-
-    public Task<PlayerProfile?> GetAsync(Guid id, CancellationToken ct = default) => _list.GetAsync(id);
-
-    public async Task<PlayerProfile> SaveAsync(PlayerProfile profile, CancellationToken ct = default)
-    {
-        var saved = profile.Clone();
-        saved.Name = saved.Name.Trim();
-        saved.UpdatedAt = _clock.GetUtcNow();
-        await _list.SaveAsync(saved);
-        return saved.Clone();
-    }
-
-    public Task DeleteAsync(Guid id, CancellationToken ct = default) => _list.DeleteAsync(id);
 }
 
 /// <summary>Profiles in a playgroup, stored in the Supabase "player_profiles" table.</summary>

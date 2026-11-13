@@ -8,24 +8,27 @@ using Microsoft.AspNetCore.Components;
 namespace Kabatra.MagicTheGathering.Companion.Services;
 
 /// <summary>
-/// Decides where decks, player profiles and play history live, and tracks the signed-in user and their playgroups.
-/// With Supabase configured, they belong to the selected playgroup; without it, they stay on this device.
+/// Tracks the signed-in user and their playgroups, and decides where decks, player profiles and play history
+/// are read and saved. Everything needs a signed-in user: sign-in goes through an OAuth provider (see
+/// <see cref="AuthProviders"/>), never a password the app handles.
 /// </summary>
 public sealed class DeckLibrary(
     SupabaseClient supabase,
     PlaygroupService playgroups,
     IKeyValueStore storage,
-    NavigationManager nav)
+    NavigationManager nav,
+    IReadOnlyList<AuthProvider> providers)
 {
     private const string GroupKey = "mtg-companion.playgroup";
     private const string DisplayNameKey = "mtg-companion.display-name";
 
     private Task? _init;
-    private IDeckStore? _local;
-    private IProfileStore? _localProfiles;
-    private IGameHistoryStore? _localHistory;
 
-    public bool CloudEnabled => supabase.IsConfigured;
+    /// <summary>False when appsettings.json has no usable Supabase project; the app can't be used then.</summary>
+    public bool Configured => supabase.IsConfigured;
+
+    /// <summary>The sign-in buttons to offer, in order.</summary>
+    public IReadOnlyList<AuthProvider> Providers => providers;
     public bool SignedIn => supabase.IsSignedIn;
     public string? Email => supabase.Session?.Email;
     public IReadOnlyList<Playgroup> Groups { get; private set; } = [];
@@ -37,30 +40,20 @@ public sealed class DeckLibrary(
     public string? Error { get; set; }
 
     /// <summary>Where decks are read and saved right now, or null if the user still has to sign in or pick a group.</summary>
-    public IDeckStore? Store =>
-        !CloudEnabled ? _local ??= new LocalDeckStore(storage)
-        : CurrentGroup is { } group && SignedIn ? new SupabaseDeckStore(supabase, group)
-        : null;
+    public IDeckStore? Store => CurrentGroup is { } group && SignedIn ? new SupabaseDeckStore(supabase, group) : null;
 
     /// <summary>Where player profiles are read and saved right now; null in the same cases as <see cref="Store"/>.</summary>
-    public IProfileStore? Profiles =>
-        !CloudEnabled ? _localProfiles ??= new LocalProfileStore(storage)
-        : CurrentGroup is { } group && SignedIn ? new SupabaseProfileStore(supabase, group)
-        : null;
+    public IProfileStore? Profiles => CurrentGroup is { } group && SignedIn ? new SupabaseProfileStore(supabase, group) : null;
 
     /// <summary>Where finished games are read and saved right now; null in the same cases as <see cref="Store"/>.</summary>
-    public IGameHistoryStore? History =>
-        !CloudEnabled ? _localHistory ??= new LocalGameHistoryStore(storage)
-        : CurrentGroup is { } group && SignedIn ? new SupabaseGameHistoryStore(supabase, group)
-        : null;
+    public IGameHistoryStore? History => CurrentGroup is { } group && SignedIn ? new SupabaseGameHistoryStore(supabase, group) : null;
 
     /// <summary>
-    /// The playgroup a game finished now belongs to: null for on-device history. When signed out it's the
-    /// last group used here, or <see cref="Guid.Empty"/> ("whichever group you sign in to") if there's none.
+    /// The playgroup a game finished now belongs to. Without a current group (e.g. offline) it's the last group
+    /// used here, or <see cref="Guid.Empty"/> ("whichever group is used next") if there's none.
     /// </summary>
     public async Task<Guid?> HistoryGroupAsync()
     {
-        if (!CloudEnabled) return null;
         if (CurrentGroup is { } group) return group.Id;
         return Guid.TryParse(await storage.GetAsync(GroupKey), out var saved) ? saved : Guid.Empty;
     }
@@ -75,7 +68,7 @@ public sealed class DeckLibrary(
         try
         {
             DisplayName = await storage.GetAsync(DisplayNameKey);
-            if (!CloudEnabled) return;
+            if (!Configured) return;
             supabase.SessionChanged += () =>
             {
                 // e.g. the refresh token expired mid-session
@@ -88,12 +81,12 @@ public sealed class DeckLibrary(
             try
             {
                 if (await supabase.TryCompleteSignInAsync(uri))
-                    nav.NavigateTo(uri.GetLeftPart(UriPartial.Query), replace: true); // drop the tokens from the address bar
+                    nav.NavigateTo(WithoutSignInParameters(uri), replace: true); // drop the one-time code from the address bar
             }
             catch (SupabaseException e)
             {
-                Error = $"Sign-in didn't work: {e.Message}";
-                nav.NavigateTo(uri.GetLeftPart(UriPartial.Query), replace: true);
+                Error = e.Message == SupabaseClient.BlockedMessage ? e.Message : $"Sign-in didn't work: {e.Message}";
+                nav.NavigateTo(WithoutSignInParameters(uri), replace: true);
             }
 
             if (SignedIn) await LoadGroupsAsync();
@@ -109,14 +102,22 @@ public sealed class DeckLibrary(
         }
     }
 
-    public Task SendSignInEmailAsync(string email) =>
-        Run(() => supabase.SendSignInEmailAsync(email, nav.BaseUri + "decks"));
-
-    public Task VerifyCodeAsync(string email, string code) => Run(async () =>
+    /// <summary>Sends the browser to the provider's sign-in page; it comes back to the page it left.</summary>
+    public Task SignInAsync(AuthProvider provider) => Run(async () =>
     {
-        await supabase.VerifyEmailCodeAsync(email, code);
-        await LoadGroupsAsync();
+        var url = await supabase.BeginSignInAsync(provider.Id, WithoutSignInParameters(new Uri(nav.Uri)));
+        nav.NavigateTo(url, forceLoad: true);
     });
+
+    /// <summary>The address without the parameters a sign-in redirect adds, or any fragment.</summary>
+    internal static string WithoutSignInParameters(Uri uri)
+    {
+        var kept = uri.Query.TrimStart('?')
+            .Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Where(p => !SupabaseClient.SignInParameters.Contains(Uri.UnescapeDataString(p.Split('=', 2)[0])))
+            .ToList();
+        return uri.GetLeftPart(UriPartial.Path) + (kept.Count > 0 ? "?" + string.Join('&', kept) : "");
+    }
 
     public Task SignOutAsync() => Run(async () =>
     {

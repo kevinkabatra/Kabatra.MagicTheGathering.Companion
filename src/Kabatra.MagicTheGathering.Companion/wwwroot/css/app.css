@@ -265,6 +265,14 @@ input[type="search"], input[type="email"] { min-width: 0; }
 .panel.account h2 { margin: 0; font-size: 1.15rem; }
 .panel.account p { margin: 0; }
 
+.sign-in { max-width: 420px; padding-top: 12vh; }
+.provider-buttons { display: grid; gap: 0.6rem; }
+.provider-button {
+    display: flex; align-items: center; justify-content: center; gap: 0.6rem;
+    width: 100%; min-height: 48px; font-weight: 600;
+}
+.provider-icon { width: 20px; height: 20px; flex: none; }
+
 .account-bar {
     display: flex;
     flex-wrap: wrap;

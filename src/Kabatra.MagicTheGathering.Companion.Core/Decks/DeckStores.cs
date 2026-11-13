@@ -5,10 +5,10 @@ using Kabatra.MagicTheGathering.Companion.Core.Cloud;
 
 namespace Kabatra.MagicTheGathering.Companion.Core.Decks;
 
-/// <summary>Where a list of decks is kept: a playgroup in Supabase, or this device.</summary>
+/// <summary>Where a list of decks is kept.</summary>
 public interface IDeckStore
 {
-    /// <summary>Shown to the user, e.g. the playgroup's name or "This device".</summary>
+    /// <summary>Shown to the user, e.g. the playgroup's name.</summary>
     string Description { get; }
 
     Task<IReadOnlyList<Deck>> ListAsync(CancellationToken ct = default);
@@ -18,47 +18,6 @@ public interface IDeckStore
     Task<Deck> SaveAsync(Deck deck, CancellationToken ct = default);
 
     Task DeleteAsync(Guid id, CancellationToken ct = default);
-}
-
-/// <summary>Decks saved in this browser only, for when cloud sync isn't set up.</summary>
-public sealed class LocalDeckStore(IKeyValueStore store, TimeProvider? clock = null) : IDeckStore
-{
-    private const string Key = "mtg-companion.decks";
-    private static readonly JsonSerializerOptions Json = new() { Converters = { new JsonStringEnumConverter() } };
-    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
-
-    public string Description => "This device";
-
-    public async Task<IReadOnlyList<Deck>> ListAsync(CancellationToken ct = default) =>
-        (await LoadAsync()).OrderBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
-
-    public async Task<Deck?> GetAsync(Guid id, CancellationToken ct = default) =>
-        (await LoadAsync()).FirstOrDefault(d => d.Id == id);
-
-    public async Task<Deck> SaveAsync(Deck deck, CancellationToken ct = default)
-    {
-        var decks = await LoadAsync();
-        var saved = deck.Clone();
-        saved.UpdatedAt = _clock.GetUtcNow();
-        decks.RemoveAll(d => d.Id == deck.Id);
-        decks.Add(saved);
-        await store.SetAsync(Key, JsonSerializer.Serialize(decks, Json));
-        return saved.Clone();
-    }
-
-    public async Task DeleteAsync(Guid id, CancellationToken ct = default)
-    {
-        var decks = await LoadAsync();
-        if (decks.RemoveAll(d => d.Id == id) > 0) await store.SetAsync(Key, JsonSerializer.Serialize(decks, Json));
-    }
-
-    private async Task<List<Deck>> LoadAsync()
-    {
-        var json = await store.GetAsync(Key);
-        if (json is null) return [];
-        try { return JsonSerializer.Deserialize<List<Deck>>(json, Json) ?? []; }
-        catch (JsonException) { return []; }
-    }
 }
 
 /// <summary>Decks shared with a playgroup, stored in the Supabase "decks" table.</summary>

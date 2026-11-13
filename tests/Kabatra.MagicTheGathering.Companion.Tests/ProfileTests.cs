@@ -160,44 +160,6 @@ public class ProfileTests
     // ----- Stores -----
 
     [Fact]
-    public async Task LocalProfileStore_SavesListsAndDeletes()
-    {
-        var store = new LocalProfileStore(new MemoryKeyValueStore());
-        var profile = new PlayerProfile { Name = "  Sam " };
-        profile.AddToCollection(TestCards.SolRing);
-
-        await store.SaveAsync(profile);
-        await store.SaveAsync(new PlayerProfile { Name = "Alex" });
-        profile.Collection.Clear(); // the store keeps its own copy
-
-        var loaded = await store.GetAsync(profile.Id);
-        Assert.Equal("Sam", loaded!.Name);
-        Assert.Equal(TestCards.SolRing.Id, loaded.Collection.Single().ScryfallId);
-        Assert.Equal(["Alex", "Sam"], (await store.ListAsync()).Select(p => p.Name));
-
-        await store.DeleteAsync(profile.Id);
-        Assert.Single(await store.ListAsync());
-    }
-
-    [Fact]
-    public async Task LocalGameHistoryStore_ListsNewestFirst_AndReplacesTheSameGame()
-    {
-        var store = new LocalGameHistoryStore(new MemoryKeyValueStore());
-        var start = DateTimeOffset.Parse("2026-11-01T19:00:00Z");
-        var first = new GameRecord { Id = Guid.NewGuid(), Format = "Commander", EndedAt = start };
-        var second = new GameRecord { Id = Guid.NewGuid(), Format = "Commander", EndedAt = start.AddHours(1) };
-
-        await store.SaveAsync(first);
-        await store.SaveAsync(second);
-        first.Turns = 9;
-        await store.SaveAsync(first);
-
-        var games = await store.ListAsync();
-        Assert.Equal([second.Id, first.Id], games.Select(g => g.Id));
-        Assert.Equal(9, games[1].Turns);
-    }
-
-    [Fact]
     public async Task SupabaseProfileStore_UpsertsCollectionAsJson()
     {
         string? sent = null;
