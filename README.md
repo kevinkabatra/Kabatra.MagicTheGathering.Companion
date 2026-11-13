@@ -20,6 +20,7 @@ Built in C# with Blazor WebAssembly (.NET 8), so the whole app runs in the brows
 - **Rotate** a card 180° for the player across the table
 - **Auto-save:** the game survives a refresh or a locked phone
 - **Decks:** build decks with card search from [Scryfall](https://scryfall.com), import and export Arena / MTGO / Moxfield lists, and check legality (deck size, copy limits, bans, commander rules and color identity) for Commander, Standard, Pioneer, Modern, Legacy, Vintage, Pauper, Brawl and Oathbreaker
+- **Prebuilt decks:** import any official precon (Commander decks, Duel Decks, Challenger Decks, Starter Kits and more) in one tap, with the exact printings from the box. Deck lists come from [MTGJSON](https://mtgjson.com)
 - **Shared playgroup decks:** sign in with an email link, join your playgroup with an invite code, and everyone sees the group's decks (needs a free Supabase project; without one, decks are saved on the device)
 - **Decks at the table:** pick each player's deck when starting a game; the format follows the decks and the player's card shows the commander's art
 

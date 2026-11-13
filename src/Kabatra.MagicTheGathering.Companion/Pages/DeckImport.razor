@@ -1,6 +1,7 @@
 @page "/decks/import"
 @inject DeckLibrary Library
 @inject CardCatalog Catalog
+@inject PreconCatalog Precons
 @inject NavigationManager Nav
 
 <PageTitle>Import deck · MTG Companion</PageTitle>
@@ -8,7 +9,7 @@
 <div class="page">
     <header class="page-head">
         <a href="decks" class="back">← Decks</a>
-        <h1>Import a deck list</h1>
+        <h1>Import a deck</h1>
     </header>
 
     @if (Library.Store is null)
@@ -17,29 +18,99 @@
     }
     else
     {
-        <section class="setup-like">
-            <p class="muted">
-                Paste a list exported from MTG Arena, MTGO, Moxfield, Archidekt or similar, one card per line,
-                like <code>4 Lightning Bolt</code> or <code>1 Sol Ring (C21) 263</code>.
-            </p>
-            <textarea rows="14" @bind="_text" @bind:event="oninput" @bind:after="() => _confirmedProblems = false" placeholder="@Example" aria-label="Deck list"></textarea>
+        <div class="mode-tabs" role="tablist">
+            <button role="tab" aria-selected="@(!_preconMode)" class="@(_preconMode ? "" : "on")" @onclick="() => SetMode(false)">Paste a list</button>
+            <button role="tab" aria-selected="@_preconMode" class="@(_preconMode ? "on" : "")" @onclick="() => SetMode(true)">Prebuilt deck</button>
+        </div>
 
-            <div class="field-row">
-                <label class="field grow">
-                    <span>Deck name</span>
-                    <input @bind="_name" placeholder="Taken from the list if it has one" maxlength="120" />
-                </label>
-                <label class="field grow">
-                    <span>Player</span>
-                    <input @bind="_owner" maxlength="60" />
-                </label>
-                <label class="field grow">
-                    <span>Format</span>
-                    <select @bind="_format">
-                        @foreach (var f in DeckFormat.All) { <option value="@f.Id">@f.Name</option> }
-                    </select>
-                </label>
-            </div>
+        <section class="setup-like">
+            @if (_preconMode)
+            {
+                <p class="muted">
+                    Pick an official prebuilt deck. Deck lists come from <a href="https://mtgjson.com" target="_blank" rel="noopener">MTGJSON</a>
+                    and use the exact printings from the box.
+                </p>
+
+                @if (_precons is null)
+                {
+                    <p class="muted">@(_error is null ? "Loading prebuilt decks…" : "")</p>
+                }
+                else if (_chosen is null)
+                {
+                    <div class="field-row">
+                        <label class="field grow">
+                            <span>Search</span>
+                            <input type="search" @bind="_query" @bind:event="oninput" placeholder="Deck name or set code" aria-label="Search prebuilt decks" />
+                        </label>
+                        <label class="field">
+                            <span>Type</span>
+                            <select @bind="_type">
+                                <option value="">All types</option>
+                                @foreach (var t in _types) { <option value="@t">@t</option> }
+                            </select>
+                        </label>
+                    </div>
+
+                    var matches = Filtered().ToList();
+                    <ul class="precon-list">
+                        @foreach (var p in matches.Take(MaxShown))
+                        {
+                            <li>
+                                <button @onclick="() => Choose(p)">
+                                    <strong>@p.Name</strong>
+                                    <span class="muted">@p.SetCode.ToUpperInvariant() · @p.Type@(p.ReleaseDate is { } d ? $" · {d.Year}" : "")</span>
+                                </button>
+                            </li>
+                        }
+                    </ul>
+                    @if (matches.Count == 0)
+                    {
+                        <p class="muted">No prebuilt decks match.</p>
+                    }
+                    else if (matches.Count > MaxShown)
+                    {
+                        <p class="muted">Showing @MaxShown of @matches.Count. Search to narrow it down.</p>
+                    }
+                }
+                else
+                {
+                    <div class="precon-chosen">
+                        <div>
+                            <strong>@_chosen.Name</strong>
+                            <span class="muted">@_chosen.SetCode.ToUpperInvariant() · @_chosen.Type@(_chosen.ReleaseDate is { } d ? $" · {d:MMM yyyy}" : "")</span>
+                        </div>
+                        <button class="link" @onclick="() => _chosen = null" disabled="@_busy">Choose another</button>
+                    </div>
+                }
+            }
+            else
+            {
+                <p class="muted">
+                    Paste a list exported from MTG Arena, MTGO, Moxfield, Archidekt or similar, one card per line,
+                    like <code>4 Lightning Bolt</code> or <code>1 Sol Ring (C21) 263</code>.
+                </p>
+                <textarea rows="14" @bind="_text" @bind:event="oninput" @bind:after="() => _confirmedProblems = false" placeholder="@Example" aria-label="Deck list"></textarea>
+            }
+
+            @if (!_preconMode || _chosen is not null)
+            {
+                <div class="field-row">
+                    <label class="field grow">
+                        <span>Deck name</span>
+                        <input @bind="_name" placeholder="Taken from the list if it has one" maxlength="120" />
+                    </label>
+                    <label class="field grow">
+                        <span>Player</span>
+                        <input @bind="_owner" maxlength="60" />
+                    </label>
+                    <label class="field grow">
+                        <span>Format</span>
+                        <select @bind="_format">
+                            @foreach (var f in DeckFormat.All) { <option value="@f.Id">@f.Name</option> }
+                        </select>
+                    </label>
+                </div>
+            }
 
             @if (_problems.Count > 0)
             {
@@ -50,15 +121,19 @@
             }
 
             <ErrorMessage Message="@_error" />
-            <button class="primary big" @onclick="ImportAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_text))">
-                @(_busy ? _status : _problems.Count > 0 ? "Import anyway" : "Import")
-            </button>
+            @if (!_preconMode || _chosen is not null)
+            {
+                <button class="primary big" @onclick="ImportAsync" disabled="@(_busy || !CanImport)">
+                    @(_busy ? _status : !_preconMode && _problems.Count > 0 ? "Import anyway" : "Import")
+                </button>
+            }
         </section>
     }
 </div>
 
 @code {
     private const string Example = "Commander\n1 Krenko, Mob Boss\n\nDeck\n1 Sol Ring\n30 Mountain";
+    private const int MaxShown = 50;
     private string _text = "";
     private string _name = "";
     private string _owner = "";
@@ -69,17 +144,73 @@
     private string _status = "";
     private string? _error;
 
+    private bool _preconMode;
+    private IReadOnlyList<PreconSummary>? _precons;
+    private List<string> _types = [];
+    private string _query = "";
+    private string _type = "Commander Deck";
+    private PreconSummary? _chosen;
+
+    private bool CanImport => _preconMode ? _chosen is not null : !string.IsNullOrWhiteSpace(_text);
+
     protected override async Task OnInitializedAsync()
     {
         await Library.InitializeAsync();
         _owner = Library.DisplayName ?? "";
     }
 
+    private async Task SetMode(bool precon)
+    {
+        _preconMode = precon;
+        _problems = [];
+        _error = null;
+        if (precon && _precons is null) await LoadPreconsAsync();
+    }
+
+    private async Task LoadPreconsAsync()
+    {
+        try
+        {
+            _precons = await Precons.ListAsync();
+            var present = _precons.Select(p => p.Type).Where(t => t.Length > 0).ToHashSet();
+            _types = PreconCatalog.CommonTypes.Where(present.Contains)
+                .Concat(present.Except(PreconCatalog.CommonTypes).Order(StringComparer.OrdinalIgnoreCase))
+                .ToList();
+            if (!present.Contains(_type)) _type = "";
+        }
+        catch (Exception e) when (e is PreconException or HttpRequestException or System.Text.Json.JsonException)
+        {
+            _error = $"Couldn't load prebuilt decks: {e.Message}";
+        }
+    }
+
+    private IEnumerable<PreconSummary> Filtered()
+    {
+        var words = _query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return (_precons ?? []).Where(p =>
+            (_type.Length == 0 || p.Type == _type)
+            && words.All(w => p.Name.Contains(w, StringComparison.OrdinalIgnoreCase) || p.SetCode.Equals(w, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private void Choose(PreconSummary precon)
+    {
+        _chosen = precon;
+        _name = precon.Name;
+        _format = PreconCatalog.FormatFor(precon.Type, hasCommander: precon.Type.Contains("Commander", StringComparison.OrdinalIgnoreCase)).Id;
+        _problems = [];
+        _error = null;
+    }
+
     private async Task ImportAsync()
     {
-        if (Library.Store is not { } store) return;
+        if (Library.Store is null) return;
         _error = null;
+        if (_preconMode) await ImportPreconAsync();
+        else await ImportListAsync();
+    }
 
+    private async Task ImportListAsync()
+    {
         var parsed = DeckListText.Parse(_text);
         if (parsed.Cards.Count == 0)
         {
@@ -96,11 +227,36 @@
         var deck = new Deck
         {
             Name = !string.IsNullOrWhiteSpace(_name) ? _name.Trim() : parsed.Name ?? "Imported deck",
-            OwnerName = _owner.Trim(),
             Format = GuessFormat(parsed.Cards),
             Cards = parsed.Cards.ToList(),
         };
+        await ResolveAndSaveAsync(deck);
+    }
 
+    private async Task ImportPreconAsync()
+    {
+        if (_chosen is not { } precon) return;
+        _busy = true;
+        try
+        {
+            _status = "Fetching the deck list…";
+            StateHasChanged();
+            var deck = await Precons.GetDeckAsync(precon);
+            if (!string.IsNullOrWhiteSpace(_name)) deck.Name = _name.Trim();
+            deck.Format = GuessFormat(deck.Cards);
+            await ResolveAndSaveAsync(deck);
+        }
+        catch (Exception e) when (e is PreconException or HttpRequestException or System.Text.Json.JsonException)
+        {
+            _error = $"Import failed: {e.Message}";
+            _busy = false;
+        }
+    }
+
+    private async Task ResolveAndSaveAsync(Deck deck)
+    {
+        if (Library.Store is not { } store) return;
+        deck.OwnerName = _owner.Trim();
         _busy = true;
         try
         {

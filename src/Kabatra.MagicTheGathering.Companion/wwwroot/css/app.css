@@ -420,3 +420,15 @@ input[type="search"], input[type="email"] { min-width: 0; }
 }
 .loading-progress-text { position: absolute; text-align: center; font-weight: bold; inset: calc(20vh + 3.25rem) 0 auto 0.2rem; }
 .loading-progress-text:after { content: var(--blazor-load-percentage-text, "Loading"); }
+
+/* ---------- Deck import ---------- */
+.mode-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.precon-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; max-height: 26rem; overflow-y: auto; }
+.precon-list button,
+.precon-chosen { display: grid; gap: 0.15rem; width: 100%; text-align: left; background: var(--surface); }
+.precon-list button > *,
+.precon-chosen strong { overflow-wrap: anywhere; }
+.precon-list .muted,
+.precon-chosen .muted { font-size: 0.85rem; }
+.precon-chosen { padding: 0.7rem 0.9rem; border: 1px solid var(--accent); border-radius: var(--radius); gap: 0.5rem; }
+.precon-chosen > div { display: grid; gap: 0.15rem; }
