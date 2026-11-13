@@ -74,13 +74,17 @@ public sealed class CardCatalog(ScryfallClient scryfall, IKeyValueStore store, T
     /// Looks up every card in a deck. Lines that match get their Scryfall id, canonical name and
     /// printing filled in; lines that don't are returned in <see cref="DeckResolveResult.NotFound"/>.
     /// </summary>
-    public async Task<DeckResolveResult> ResolveAsync(Deck deck, CancellationToken ct = default)
+    public Task<DeckResolveResult> ResolveAsync(Deck deck, CancellationToken ct = default) =>
+        ResolveAsync((deck ?? throw new ArgumentNullException(nameof(deck))).Cards, ct);
+
+    /// <summary>Looks up card lines that aren't in a deck, e.g. a player's collection. Same rules as for a deck.</summary>
+    public async Task<DeckResolveResult> ResolveAsync(IEnumerable<DeckCard> lines, CancellationToken ct = default)
     {
         var cache = await LoadAsync();
         var found = new Dictionary<Guid, CardInfo>();
         var pending = new List<DeckCard>();
 
-        foreach (var line in deck.Cards)
+        foreach (var line in lines)
         {
             if (line.ScryfallId is { } id && cache.TryGetValue(id, out var entry) && IsFresh(entry))
                 found[id] = entry.Card;

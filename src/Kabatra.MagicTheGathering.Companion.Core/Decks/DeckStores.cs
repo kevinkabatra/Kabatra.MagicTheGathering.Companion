@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Kabatra.MagicTheGathering.Companion.Core.Cloud;
 
@@ -63,27 +64,57 @@ public sealed class LocalDeckStore(IKeyValueStore store, TimeProvider? clock = n
 /// <summary>Decks shared with a playgroup, stored in the Supabase "decks" table.</summary>
 public sealed class SupabaseDeckStore(SupabaseClient supabase, Playgroup group) : IDeckStore
 {
-    private const string Columns = "id,playgroup_id,name,owner_name,format,notes,cover_image_url,cards,updated_at";
+    private const string OwnerProfileColumn = "owner_profile_id";
+    private const string LegacyColumns = "id,playgroup_id,name,owner_name,format,notes,cover_image_url,cards,updated_at";
+    private const string Columns = LegacyColumns + "," + OwnerProfileColumn;
 
     public string Description => group.Name;
     public Playgroup Group => group;
 
     public async Task<IReadOnlyList<Deck>> ListAsync(CancellationToken ct = default)
     {
-        var rows = await supabase.GetAsync<List<DeckRow>>($"decks?select={Columns}&playgroup_id=eq.{group.Id}&order=name", ct);
+        var rows = await WithOldSchemaFallback(columns => supabase.GetAsync<List<DeckRow>>($"decks?select={columns}&playgroup_id=eq.{group.Id}&order=name", ct));
         return rows.Select(r => r.ToDeck()).ToList();
     }
 
     public async Task<Deck?> GetAsync(Guid id, CancellationToken ct = default)
     {
-        var rows = await supabase.GetAsync<List<DeckRow>>($"decks?select={Columns}&id=eq.{id}", ct);
+        var rows = await WithOldSchemaFallback(columns => supabase.GetAsync<List<DeckRow>>($"decks?select={columns}&id=eq.{id}", ct));
         return rows.FirstOrDefault()?.ToDeck();
     }
 
     public async Task<Deck> SaveAsync(Deck deck, CancellationToken ct = default)
     {
-        var rows = await supabase.UpsertAsync<DeckRow>("decks", DeckRow.From(deck, group.Id), ct);
+        var row = DeckRow.From(deck, group.Id);
+        var rows = await WithOldSchemaFallback(_ => supabase.DecksLackOwnerProfile
+            ? supabase.UpsertAsync<DeckRow>("decks", WithoutOwnerProfile(row), ct)
+            : supabase.UpsertAsync<DeckRow>("decks", row, ct));
         return rows.FirstOrDefault()?.ToDeck() ?? throw new SupabaseException("The deck wasn't saved.", 500);
+    }
+
+    /// <summary>
+    /// Runs a request, and if the database predates player profiles (no owner_profile_id column), runs it
+    /// again without that column. Decks then work as before, just without an owner profile.
+    /// </summary>
+    private async Task<T> WithOldSchemaFallback<T>(Func<string, Task<T>> request)
+    {
+        if (supabase.DecksLackOwnerProfile) return await request(LegacyColumns);
+        try
+        {
+            return await request(Columns);
+        }
+        catch (SupabaseException e) when (e.NeedsSchemaUpdate && e.Message.Contains(OwnerProfileColumn, StringComparison.OrdinalIgnoreCase))
+        {
+            supabase.DecksLackOwnerProfile = true;
+            return await request(LegacyColumns);
+        }
+    }
+
+    private static JsonObject WithoutOwnerProfile(DeckRow row)
+    {
+        var json = JsonSerializer.SerializeToNode(row, SupabaseClient.Json)!.AsObject();
+        json.Remove(OwnerProfileColumn);
+        return json;
     }
 
     public Task DeleteAsync(Guid id, CancellationToken ct = default) => supabase.DeleteAsync($"decks?id=eq.{id}", ct);
@@ -95,6 +126,7 @@ public sealed class SupabaseDeckStore(SupabaseClient supabase, Playgroup group) 
         string Name,
         // Always send these, even when empty, so clearing a field on an existing deck sticks.
         [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? OwnerName,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] Guid? OwnerProfileId,
         string Format,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? Notes,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? CoverImageUrl,
@@ -102,8 +134,8 @@ public sealed class SupabaseDeckStore(SupabaseClient supabase, Playgroup group) 
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] DateTimeOffset UpdatedAt)
     {
         public static DeckRow From(Deck d, Guid groupId) => new(
-            d.Id, groupId, d.Name.Trim(), d.OwnerName.Trim(), d.Format, d.Notes, d.CoverImageUrl,
-            d.Cards.Select(c => new CardRow(c.Name, c.Quantity, c.Section, c.ScryfallId, c.SetCode, c.CollectorNumber)).ToList(),
+            d.Id, groupId, d.Name.Trim(), d.OwnerName.Trim(), d.OwnerProfileId, d.Format, d.Notes, d.CoverImageUrl,
+            d.Cards.Select(CardRow.From).ToList(),
             default);
 
         public Deck ToDeck() => new()
@@ -111,21 +143,27 @@ public sealed class SupabaseDeckStore(SupabaseClient supabase, Playgroup group) 
             Id = Id,
             Name = Name,
             OwnerName = OwnerName ?? "",
+            OwnerProfileId = OwnerProfileId,
             Format = Format,
             Notes = Notes ?? "",
             CoverImageUrl = CoverImageUrl,
             UpdatedAt = UpdatedAt,
-            Cards = Cards.Select(c => new DeckCard
-            {
-                Name = c.Name,
-                Quantity = c.Quantity,
-                Section = c.Section,
-                ScryfallId = c.ScryfallId,
-                SetCode = c.SetCode,
-                CollectorNumber = c.CollectorNumber,
-            }).ToList(),
+            Cards = Cards.Select(c => c.ToDeckCard()).ToList(),
         };
     }
 
-    internal sealed record CardRow(string Name, int Quantity, DeckSection Section, Guid? ScryfallId, string? SetCode, string? CollectorNumber);
+    internal sealed record CardRow(string Name, int Quantity, DeckSection Section, Guid? ScryfallId, string? SetCode, string? CollectorNumber)
+    {
+        public static CardRow From(DeckCard c) => new(c.Name, c.Quantity, c.Section, c.ScryfallId, c.SetCode, c.CollectorNumber);
+
+        public DeckCard ToDeckCard() => new()
+        {
+            Name = Name,
+            Quantity = Quantity,
+            Section = Section,
+            ScryfallId = ScryfallId,
+            SetCode = SetCode,
+            CollectorNumber = CollectorNumber,
+        };
+    }
 }

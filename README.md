@@ -22,8 +22,10 @@ Built in C# with Blazor WebAssembly (.NET 8), so the whole app runs in the brows
 - **Decks:** build decks with card search from [Scryfall](https://scryfall.com), import and export Arena / MTGO / Moxfield lists, and check legality (deck size, copy limits, bans, commander rules and color identity) for Commander, Standard, Pioneer, Modern, Legacy, Vintage, Pauper, Brawl and Oathbreaker
 - **Scan cards:** point the camera at a physical card (or pick a photo) to add it to a deck. The card's name, set and collector number are read on the device with [Tesseract.js](https://tesseract.projectnaptha.com/), so photos never leave the phone, and matched to the exact printing on Scryfall
 - **Prebuilt decks:** import any official precon (Commander decks, Duel Decks, Challenger Decks, Starter Kits and more) in one tap, with the exact printings from the box. Deck lists come from [MTGJSON](https://mtgjson.com)
-- **Shared playgroup decks:** sign in with an email link, join your playgroup with an invite code, and everyone sees the group's decks (needs a free Supabase project; without one, decks are saved on the device)
+- **Shared playgroup decks:** sign in with an email link, join your playgroup with an invite code, and everyone sees the group's decks, players and play history (needs a free Supabase project; without one, they're saved on the device)
 - **Decks at the table:** pick each player's deck when starting a game; the format follows the decks and the player's card shows the commander's art
+- **Player profiles:** a profile for each person in the playgroup, with the cards they own (search, scan or paste a list) and what their collection is worth, plus the decks they own. Anyone can still play anyone's deck. Profiles don't need an account, so friends without one can have one too
+- **Play history:** pick each seat's profile when starting a game, and the game is saved when you start the next one: who played which deck, and who won. Each profile shows games, wins and win rate, overall and per deck, and each deck shows its record across everyone who played it
 
 ## Run it locally
 
@@ -43,10 +45,12 @@ dotnet test
 
 ## Shared decks with Supabase (optional)
 
-Without this, everything works but decks stay in the browser they were made in.
+Without this, everything works but decks, player profiles and play history stay in the browser they were made in.
 
 1. Create a free project at [supabase.com](https://supabase.com).
-2. In the project's **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql). It creates the `playgroups`, `playgroup_members` and `decks` tables, row-level security so only members can see a group's decks, and the `create_playgroup` / `join_playgroup` functions.
+2. In the project's **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql). It creates the `playgroups`, `playgroup_members`, `decks`, `player_profiles` and `game_records` tables, row-level security so only members can see a group's data, and the `create_playgroup` / `join_playgroup` functions.
+
+   **Already set up from an older version?** Run `schema.sql` again after updating: it only adds what's missing and keeps your decks. Until you do, decks keep working but the Players page asks for the update.
 3. In **Authentication → URL Configuration**, set **Site URL** to the live site and add these **Redirect URLs**:
    - `https://kevinkabatra.github.io/Kabatra.MagicTheGathering.Companion/**`
    - `http://localhost:5243/**` (for running locally)
@@ -71,10 +75,10 @@ Card names, images, and legality come from the [Scryfall API](https://scryfall.c
 
 | Path | What's in it |
 | --- | --- |
-| `src/Kabatra.MagicTheGathering.Companion.Core` | Game rules and state (players, counters, turns, undo, save/load), deck rules (deck lists, legality), and the Scryfall and Supabase clients. No UI code. |
+| `src/Kabatra.MagicTheGathering.Companion.Core` | Game rules and state (players, counters, turns, undo, save/load), deck rules (deck lists, legality), player profiles and play history, and the Scryfall and Supabase clients. No UI code. |
 | `src/Kabatra.MagicTheGathering.Companion` | The Blazor WebAssembly app (pages, components, styles). |
 | `tests/Kabatra.MagicTheGathering.Companion.Tests` | xUnit tests for the core library. |
-| `supabase/schema.sql` | Database tables, security policies and functions for shared decks. |
+| `supabase/schema.sql` | Database tables, security policies and functions for shared decks, player profiles and play history. |
 
 ## Hosting
 

@@ -1,0 +1,422 @@
+@page "/profiles/{Id:guid}"
+@implements IDisposable
+@inject DeckLibrary Library
+@inject CardCatalog Catalog
+@inject NavigationManager Nav
+@inject IJSRuntime Js
+
+<PageTitle>@(_profile?.Name ?? "Player") · MTG Companion</PageTitle>
+
+<div class="page wide">
+    <header class="page-head">
+        <a href="profiles" class="back">← Players</a>
+        <h1>@(string.IsNullOrWhiteSpace(_profile?.Name) ? "Player" : _profile.Name)</h1>
+    </header>
+
+    @if (Library.Profiles is null)
+    {
+        <AccountPanel />
+    }
+    else if (_profile is null)
+    {
+        @if (_loadError is not null) { <ErrorMessage Message="@_loadError" /> }
+        else { <p class="muted">Loading player…</p> }
+    }
+    else
+    {
+        var stats = PlayerStats.For(_profile.Id, _games);
+        var worth = DeckValue.Of(_profile.Collection, _cards);
+
+        <div class="row spread save-bar">
+            <label class="field grow">
+                <span>Name</span>
+                <input @bind="_profile.Name" @bind:after="Touch" maxlength="60" aria-label="Player name" />
+            </label>
+            <div class="actions">
+                @if (_dirty) { <span class="unsaved small">Unsaved changes</span> }
+                <button @onclick="DeleteAsync">Delete</button>
+                <button class="primary" @onclick="SaveAsync" disabled="@(_saving || string.IsNullOrWhiteSpace(_profile.Name))">@(_saving ? "Saving…" : "Save")</button>
+            </div>
+        </div>
+        <ErrorMessage Message="@_error" />
+
+        <dl class="stat-row">
+            <div><dt>Games</dt><dd>@stats.Games</dd></div>
+            <div><dt>Wins</dt><dd>@stats.Wins</dd></div>
+            <div><dt>Win rate</dt><dd>@(stats.WinRate is { } rate ? rate.ToString("P0") : "—")</dd></div>
+            <div><dt>Cards owned</dt><dd>@_profile.CardCount</dd></div>
+            <div title="@WorthTitle(worth)">
+                <dt>Collection value</dt>
+                <dd>@(_resolving ? "…" : DeckValue.FormatUsd(worth.Usd))</dd>
+            </div>
+            <div title="Every card in the decks this player owns, sideboards included. Cards in both a deck and the collection count in both.">
+                <dt>Decks value</dt>
+                <dd>@(_decksWorth is { } d ? DeckValue.FormatUsd(d.Usd) : "…")</dd>
+            </div>
+        </dl>
+
+        <section class="profile-section">
+            <div class="row spread">
+                <h2>Decks <span class="muted">(@_decks.Count)</span></h2>
+                <a class="button" href="decks/new?owner=@_profile.Id">+ New deck</a>
+            </div>
+            <p class="muted small">Decks this player owns. Anyone can play them; each deck's record counts every game it was played in.</p>
+            @if (_decks.Count == 0)
+            {
+                <p class="muted">No decks yet. Build one, or set this player as the owner of an existing deck in the deck editor.</p>
+            }
+            else
+            {
+                <ul class="deck-grid">
+                    @foreach (var deck in _decks)
+                    {
+                        var record = PlayerStats.ForDeck(deck.Id, deck.Name, _games);
+                        <li class="owned-deck">
+                            <a class="deck-tile" href="decks/@deck.Id">
+                                <div class="art" style="@(deck.CoverImageUrl is null ? null : $"background-image:url('{deck.CoverImageUrl}')")"></div>
+                                <div class="info">
+                                    <strong>@deck.Name</strong>
+                                    <span class="muted">@deck.GetFormat().Name · @(deck.Count(DeckSection.Main) + deck.Count(DeckSection.Commander)) cards</span>
+                                    <span class="muted small">@(record.Games == 0 ? "Not played yet" : $"{record.Wins}–{record.Games - record.Wins} in {record.Games} game{(record.Games == 1 ? "" : "s")}")</span>
+                                </div>
+                            </a>
+                            <button class="link small" @onclick="() => AddDeckToCollectionAsync(deck)" title="Count this deck's cards as owned">+ Add its cards to the collection</button>
+                        </li>
+                    }
+                </ul>
+            }
+        </section>
+
+        <div class="editor">
+            <section class="profile-section">
+                <div class="row spread">
+                    <h2>Collection <span class="muted">(@_profile.CardCount)</span></h2>
+                    <div class="actions">
+                        <button @onclick="() => _showScanner = true" title="Scan physical cards with the camera">📷 Scan</button>
+                        <button @onclick="() => _showPaste = true">Paste list</button>
+                    </div>
+                </div>
+                @if (_profile.Collection.Count == 0)
+                {
+                    <p class="muted">No cards yet. Search, scan, or paste a list (Arena, MTGO or Moxfield format) to add the cards this player owns.</p>
+                }
+                else
+                {
+                    <input type="search" placeholder="Filter the collection" @bind="_filter" @bind:event="oninput" aria-label="Filter the collection" />
+                    <section class="deck-section">
+                        <h3>
+                            @(string.IsNullOrWhiteSpace(_filter) ? "All cards" : "Matching cards")
+                            @if (worth.Usd > 0) { <span class="section-value muted">@DeckValue.FormatUsd(DeckValue.Of(FilteredCollection(), _cards).Usd)</span> }
+                        </h3>
+                        <ul>
+                            @foreach (var line in FilteredCollection())
+                            {
+                                var card = CardOf(line);
+                                var price = DeckValue.LinePrice(line, _cards);
+                                <li class="deck-line collection-line @(card is null && !_resolving ? "unknown" : null)">
+                                    <div class="qty">
+                                        <button class="icon" @onclick="() => SetQuantity(line, line.Quantity - 1)" aria-label="One fewer @line.Name">−</button>
+                                        <span>@line.Quantity</span>
+                                        <button class="icon" @onclick="() => SetQuantity(line, line.Quantity + 1)" aria-label="One more @line.Name">+</button>
+                                    </div>
+                                    <button class="card-name" @onclick="() => { if (card is not null) _preview = card; }">@line.Name</button>
+                                    <span class="muted small printing">@(line.SetCode?.ToUpperInvariant())@(line.CollectorNumber is null ? "" : $" #{line.CollectorNumber}")</span>
+                                    <span class="price muted">@(price is { } p ? DeckValue.FormatUsd(p) : "—")</span>
+                                </li>
+                            }
+                        </ul>
+                    </section>
+                }
+            </section>
+
+            <section class="search-side">
+                <h2>Add cards</h2>
+                <CardSearch OnAdd="AddCard" CollectionMode="true" />
+            </section>
+        </div>
+
+        <section class="profile-section">
+            <h2>Play history</h2>
+            @if (_historyError is not null)
+            {
+                <ErrorMessage Message="@_historyError" />
+            }
+            else if (stats.Games == 0)
+            {
+                <p class="muted">No games yet. Pick @_profile.Name as a player when setting up a game, and it's recorded here when the game ends.</p>
+            }
+            else
+            {
+                <table class="deck-records">
+                    <thead><tr><th>Deck played</th><th>Games</th><th>Wins</th><th>Win rate</th></tr></thead>
+                    <tbody>
+                        @foreach (var deck in stats.Decks)
+                        {
+                            <tr>
+                                <td>@deck.DeckName</td>
+                                <td>@deck.Games</td>
+                                <td>@deck.Wins</td>
+                                <td>@(((double)deck.Wins / deck.Games).ToString("P0"))</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                <GameHistoryList Games="MyGames().Take(_shown).ToList()" ProfileId="_profile.Id" />
+                @if (MyGames().Count() > _shown)
+                {
+                    <button @onclick="() => _shown += 25">Show more</button>
+                }
+            }
+        </section>
+
+        @if (_showPaste)
+        {
+            <div class="overlay" @onclick="() => _showPaste = false">
+                <div class="dialog" @onclick:stopPropagation="true" role="dialog" aria-label="Paste a card list">
+                    <h2>Paste a card list</h2>
+                    <p class="muted small">One card per line, like <code>4 Lightning Bolt (2X2) 117</code>. Set and number are optional but give the right price.</p>
+                    <textarea rows="12" @bind="_pasteText" placeholder="1 Sol Ring (C21) 263"></textarea>
+                    @if (_pasteProblems.Count > 0)
+                    {
+                        <ul class="small error-text">
+                            @foreach (var problem in _pasteProblems) { <li>@problem</li> }
+                        </ul>
+                    }
+                    <div class="actions">
+                        <button class="primary" @onclick="AddPastedAsync" disabled="@string.IsNullOrWhiteSpace(_pasteText)">Add to collection</button>
+                        <button @onclick="() => _showPaste = false">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_showScanner)
+        {
+            <CardScanner OnAdd="AddCard" OnClose="() => _showScanner = false" CollectionMode="true" />
+        }
+
+        <CardPreview Card="_preview" OnClose="() => _preview = null" />
+    }
+</div>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private PlayerProfile? _profile;
+    private string _savedName = "";
+    private List<Deck> _decks = [];
+    private List<GameRecord> _games = [];
+    private Dictionary<Guid, CardInfo> _cards = [];
+    private DeckValue? _decksWorth;
+    private CardInfo? _preview;
+    private string _filter = "";
+    private string _pasteText = "";
+    private IReadOnlyList<string> _pasteProblems = [];
+    private int _shown = 25;
+    private bool _dirty;
+    private bool _saving;
+    private bool _resolving;
+    private bool _showPaste;
+    private bool _showScanner;
+    private string? _loadError;
+    private string? _historyError;
+    private string? _error;
+    private IDisposable? _leaveGuard;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Library.InitializeAsync();
+        if (Library.Profiles is not { } profiles) return;
+
+        try
+        {
+            _profile = await profiles.GetAsync(Id);
+            if (_profile is null) { _loadError = "That player doesn't exist any more, or isn't in this playgroup."; return; }
+            _savedName = _profile.Name;
+            if (Library.Store is { } decks)
+                _decks = (await decks.ListAsync()).Where(d => d.OwnerProfileId == Id).ToList();
+        }
+        catch (Exception e) when (e is SupabaseException or HttpRequestException)
+        {
+            _loadError = CloudErrors.Describe("Couldn't load the player", e);
+            return;
+        }
+
+        try
+        {
+            if (Library.History is { } history) _games = (await history.ListAsync()).ToList();
+        }
+        catch (Exception e) when (e is SupabaseException or HttpRequestException)
+        {
+            _historyError = CloudErrors.Describe("Couldn't load play history", e);
+        }
+
+        _leaveGuard = Nav.RegisterLocationChangingHandler(async ctx =>
+        {
+            if (_dirty && !await Js.InvokeAsync<bool>("confirm", "Leave without saving your changes?")) ctx.PreventNavigation();
+        });
+
+        await ResolveCollectionAsync();
+        await ResolveDecksAsync();
+    }
+
+    private IEnumerable<GameRecord> MyGames() => _games.Where(g => g.PlayerFor(Id) is not null);
+
+    private IEnumerable<DeckCard> FilteredCollection()
+    {
+        var words = _filter.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return _profile!.Collection
+            .Where(l => words.All(w => l.Name.Contains(w, StringComparison.OrdinalIgnoreCase)
+                || (CardOf(l)?.TypeLine?.Contains(w, StringComparison.OrdinalIgnoreCase) ?? false)
+                || string.Equals(l.SetCode, w, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(l => l.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(l => l.SetCode);
+    }
+
+    private CardInfo? CardOf(DeckCard line) => line.ScryfallId is { } id && _cards.TryGetValue(id, out var c) ? c : null;
+
+    private static string WorthTitle(DeckValue worth) =>
+        "Market value of the collection from Scryfall"
+        + (worth.UnpricedCards > 0 ? $". {worth.UnpricedCards} card(s) have no price and aren't counted." : ".");
+
+    private async Task ResolveCollectionAsync()
+    {
+        if (_profile is null) return;
+        _resolving = true;
+        StateHasChanged();
+        try
+        {
+            var result = await Catalog.ResolveAsync(_profile.Collection);
+            foreach (var (id, card) in result.Cards) _cards[id] = card;
+        }
+        catch (Exception e) when (e is ScryfallException or HttpRequestException)
+        {
+            _error = "Couldn't reach Scryfall to price the cards. The value may be incomplete.";
+        }
+        finally
+        {
+            _resolving = false;
+        }
+    }
+
+    private async Task ResolveDecksAsync()
+    {
+        var cards = new Dictionary<Guid, CardInfo>();
+        try
+        {
+            foreach (var deck in _decks)
+                foreach (var (id, card) in (await Catalog.ResolveAsync(deck)).Cards) cards[id] = card;
+        }
+        catch (Exception e) when (e is ScryfallException or HttpRequestException) { }
+        _decksWorth = DeckValue.Of(_decks.SelectMany(d => d.Cards), cards);
+        StateHasChanged();
+    }
+
+    private void Touch() => _dirty = true;
+
+    private void SetQuantity(DeckCard line, int quantity)
+    {
+        _profile!.SetQuantity(line, quantity);
+        Touch();
+    }
+
+    private void AddCard((CardInfo Card, DeckSection Section) add)
+    {
+        _cards[add.Card.Id] = add.Card;
+        _profile!.AddToCollection(add.Card);
+        Touch();
+    }
+
+    private async Task AddDeckToCollectionAsync(Deck deck)
+    {
+        if (!await Js.InvokeAsync<bool>("confirm", $"Add all {deck.Cards.Sum(c => c.Quantity)} cards in \"{deck.Name}\" to {_profile!.Name}'s collection?")) return;
+        _profile.AddDeckToCollection(deck);
+        Touch();
+        await ResolveCollectionAsync();
+    }
+
+    private async Task AddPastedAsync()
+    {
+        var parsed = DeckListText.Parse(_pasteText);
+        _pasteProblems = parsed.Problems;
+        if (parsed.Cards.Count == 0)
+        {
+            if (_pasteProblems.Count == 0) _pasteProblems = ["No cards found in the list."];
+            return;
+        }
+        foreach (var line in parsed.Cards) _profile!.AddToCollection(line);
+        Touch();
+        if (_pasteProblems.Count == 0)
+        {
+            _showPaste = false;
+            _pasteText = "";
+        }
+        else
+        {
+            _pasteText = ""; // the readable lines were added; the problems stay on screen
+        }
+        await ResolveCollectionAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_profile is null || Library.Profiles is not { } store) return;
+        _saving = true;
+        _error = null;
+        try
+        {
+            var saved = await store.SaveAsync(_profile);
+            _dirty = false;
+            if (saved.Name != _savedName) await RenameDecksAsync(saved.Name);
+            _savedName = saved.Name;
+        }
+        catch (Exception e) when (e is SupabaseException or HttpRequestException)
+        {
+            _error = CloudErrors.Describe("Couldn't save", e);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    /// <summary>Decks show their owner's name, so it follows the profile when it's renamed.</summary>
+    private async Task RenameDecksAsync(string name)
+    {
+        if (Library.Store is not { } decks) return;
+        foreach (var deck in _decks)
+        {
+            deck.OwnerName = name;
+            await decks.SaveAsync(deck);
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_profile is null || Library.Profiles is not { } store) return;
+        var where = Library.CurrentGroup?.Name is { } group ? $" from {group}" : "";
+        if (!await Js.InvokeAsync<bool>("confirm",
+                $"Delete {_savedName}{where}? Their collection is deleted too. Their decks stay, without an owner profile, and past games keep their name. This can't be undone."))
+            return;
+        try
+        {
+            if (Library.Store is { } decks)
+            {
+                foreach (var deck in _decks)
+                {
+                    deck.OwnerProfileId = null;
+                    await decks.SaveAsync(deck);
+                }
+            }
+            await store.DeleteAsync(_profile.Id);
+            _dirty = false;
+            Nav.NavigateTo("profiles");
+        }
+        catch (Exception e) when (e is SupabaseException or HttpRequestException)
+        {
+            _error = CloudErrors.Describe("Couldn't delete", e);
+        }
+    }
+
+    public void Dispose() => _leaveGuard?.Dispose();
+}

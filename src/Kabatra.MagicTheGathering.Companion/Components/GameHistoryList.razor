@@ -1,0 +1,56 @@
+@* A list of finished games. Given a profile, each game shows whether that player won. *@
+
+@if (Games.Count > 0)
+{
+    <ol class="game-history">
+        @foreach (var game in Games)
+        {
+            var me = ProfileId is { } id ? game.PlayerFor(id) : null;
+            <li>
+                <div class="row spread">
+                    <span>
+                        @if (me is not null)
+                        {
+                            <strong class="@(me.Won ? "won" : "lost")">@(me.Won ? "Won" : game.Winner is null ? "No winner" : "Lost")</strong>
+                            @if (me.DeckName is not null) { <span> with @me.DeckName</span> }
+                        }
+                        else if (game.Winner is { } winner)
+                        {
+                            <strong>🏆 @winner.Name</strong>
+                            @if (winner.DeckName is not null) { <span class="muted"> (@winner.DeckName)</span> }
+                        }
+                        else
+                        {
+                            <strong>No winner</strong>
+                        }
+                    </span>
+                    <span class="muted small">
+                        @game.EndedAt.ToLocalTime().ToString("MMM d, yyyy") · @game.Format · @game.Turns turn@(game.Turns == 1 ? "" : "s")
+                        @if (OnDelete.HasDelegate)
+                        {
+                            <button class="icon" title="Remove from history" aria-label="Remove this game from history" @onclick="() => OnDelete.InvokeAsync(game)">✕</button>
+                        }
+                    </span>
+                </div>
+                <div class="muted small seats">
+                    @foreach (var seat in game.Players.Where(p => p != me))
+                    {
+                        <span class="@(seat.Won ? "won" : null)">
+                            @(me is null ? "" : "vs ")@seat.Name@(seat.DeckName is null ? "" : $" ({seat.DeckName})")
+                        </span>
+                    }
+                </div>
+            </li>
+        }
+    </ol>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<GameRecord> Games { get; set; } = [];
+
+    /// <summary>Shows each game from this player's side: won or lost, and who they played against.</summary>
+    [Parameter] public Guid? ProfileId { get; set; }
+
+    /// <summary>Set to offer removing a game.</summary>
+    [Parameter] public EventCallback<GameRecord> OnDelete { get; set; }
+}

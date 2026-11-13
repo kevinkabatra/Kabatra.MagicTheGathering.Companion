@@ -514,3 +514,62 @@ label.button.disabled { opacity: 0.5; pointer-events: none; }
 .precon-chosen .muted { font-size: 0.85rem; }
 .precon-chosen { padding: 0.7rem 0.9rem; border: 1px solid var(--accent); border-radius: var(--radius); gap: 0.5rem; }
 .precon-chosen > div { display: grid; gap: 0.15rem; }
+
+/* ---------- Player profiles ---------- */
+.profile-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); }
+.profile-tile {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    height: 100%;
+    padding: 0.75rem;
+    color: var(--text);
+    text-decoration: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+.profile-tile:hover { border-color: var(--accent); }
+.profile-tile .info { display: grid; gap: 0.15rem; min-width: 0; }
+.profile-tile .info > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.avatar {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 2.6rem;
+    height: 2.6rem;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent) 25%, var(--surface-2));
+    color: var(--text);
+    font-weight: 700;
+    font-size: 1.15rem;
+}
+
+.stat-row { margin: 0; display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr)); }
+.stat-row > div { padding: 0.6rem 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); min-width: 0; }
+.stat-row dt { color: var(--muted); font-size: 0.8rem; }
+.stat-row dd { margin: 0.1rem 0 0; font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+.profile-section, .history { display: grid; gap: 0.6rem; min-width: 0; align-content: start; }
+.profile-section h2, .history h2 { margin: 0; font-size: 1.15rem; }
+.profile-section > p, .history > p { margin: 0; }
+.owned-deck { display: grid; gap: 0.3rem; }
+.owned-deck .link { justify-self: start; }
+
+.deck-line.collection-line { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.collection-line .printing { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.deck-records { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.deck-records th { text-align: left; color: var(--muted); font-weight: 500; font-size: 0.8rem; }
+.deck-records th, .deck-records td { padding: 0.3rem 0.4rem; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+.deck-records td:not(:first-child), .deck-records th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.deck-records td:first-child { overflow-wrap: anywhere; }
+
+.game-history { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+.game-history li { display: grid; gap: 0.2rem; padding: 0.55rem 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.game-history .row > * { min-width: 0; overflow-wrap: anywhere; }
+.game-history .seats { display: flex; flex-wrap: wrap; gap: 0.2rem 0.8rem; }
+.game-history button.icon { padding: 0 0.35rem; margin-left: 0.3rem; font-size: 0.75rem; }
+.won { color: #22c55e; }
+.lost { color: var(--danger); }
+@media (prefers-color-scheme: light) { .won { color: #15803d; } }

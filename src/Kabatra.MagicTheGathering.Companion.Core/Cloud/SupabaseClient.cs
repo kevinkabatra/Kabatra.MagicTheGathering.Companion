@@ -57,6 +57,14 @@ public sealed record AuthSession(string AccessToken, string RefreshToken, DateTi
 public sealed class SupabaseException(string message, int status) : Exception(message)
 {
     public int Status { get; } = status;
+
+    /// <summary>
+    /// True when the database is missing a table or column the app uses: the project was set up with an
+    /// older supabase/schema.sql and needs it run again.
+    /// </summary>
+    public bool NeedsSchemaUpdate =>
+        Status is 400 or 404
+        && (Message.Contains("schema cache", StringComparison.OrdinalIgnoreCase) || Message.Contains("does not exist", StringComparison.OrdinalIgnoreCase));
 }
 
 /// <summary>
@@ -93,6 +101,12 @@ public sealed class SupabaseClient
     public bool IsConfigured => _options.IsConfigured;
     public AuthSession? Session { get; private set; }
     public bool IsSignedIn => Session is not null;
+
+    /// <summary>
+    /// Set once the decks table turns out to have no owner_profile_id column (schema from before player profiles),
+    /// so decks keep working until the project's schema is updated.
+    /// </summary>
+    internal bool DecksLackOwnerProfile { get; set; }
 
     /// <summary>Raised when the user signs in or out.</summary>
     public event Action? SessionChanged;

@@ -62,12 +62,12 @@
                         </button>
                     }
                     <div class="actions">
-                        <button class="primary" @onclick="() => AddAsync(DeckSection.Main)">+ Main</button>
-                        @if (HasCommander)
+                        <button class="primary" @onclick="() => AddAsync(DeckSection.Main)">@(CollectionMode ? "+ Add to collection" : "+ Main")</button>
+                        @if (!CollectionMode && HasCommander)
                         {
                             <button @onclick="() => AddAsync(DeckSection.Commander)" title="Add as @CommanderLabel">★ @CommanderLabel</button>
                         }
-                        else
+                        else if (!CollectionMode)
                         {
                             <button @onclick="() => AddAsync(DeckSection.Sideboard)">+ Sideboard</button>
                         }
@@ -127,6 +127,9 @@
     [Parameter, EditorRequired] public EventCallback OnClose { get; set; }
     [Parameter] public bool HasCommander { get; set; }
     [Parameter] public string CommanderLabel { get; set; } = "commander";
+
+    /// <summary>Adding to a collection rather than a deck: one add button instead of deck sections.</summary>
+    [Parameter] public bool CollectionMode { get; set; }
 
     private IJSObjectReference? _module;
     private ElementReference _video;
