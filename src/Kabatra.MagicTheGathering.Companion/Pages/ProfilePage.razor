@@ -105,7 +105,7 @@
             <p class="muted small">Decks this player owns. Anyone can play them; each deck's record counts every game it was played in.</p>
             @if (_decks.Count == 0)
             {
-                <p class="muted">No decks yet. Build one, or set this player as the owner of an existing deck in the deck editor.</p>
+                <p class="muted">No decks yet.@(_canManage ? " Build one, or import a list or a prebuilt deck." : "")</p>
             }
             else
             {
@@ -146,7 +146,7 @@
                 </div>
                 @if (_profile.Collection.Count == 0)
                 {
-                    <p class="muted">No cards yet. Search, scan, or paste a list (Arena, MTGO or Moxfield format) to add the cards this player owns.</p>
+                    <p class="muted">No cards yet.@(_canManage ? " Search, scan, or paste a list (Arena, MTGO or Moxfield format) to add the cards this player owns." : "")</p>
                 }
                 else
                 {
@@ -424,8 +424,8 @@
         {
             var saved = await store.SaveAsync(_profile);
             _dirty = false;
-            if (saved.Name != _savedName) await RenameDecksAsync(saved.Name);
             _savedName = saved.Name;
+            await Library.MyProfileSavedAsync(saved);
         }
         catch (Exception e) when (e is SupabaseException or HttpRequestException)
         {
@@ -434,17 +434,6 @@
         finally
         {
             _saving = false;
-        }
-    }
-
-    /// <summary>Decks show their owner's name, so it follows the profile when it's renamed.</summary>
-    private async Task RenameDecksAsync(string name)
-    {
-        if (Library.Store is not { } decks) return;
-        foreach (var deck in _decks)
-        {
-            deck.OwnerName = name;
-            await decks.SaveAsync(deck);
         }
     }
 

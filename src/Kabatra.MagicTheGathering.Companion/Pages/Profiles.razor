@@ -17,10 +17,23 @@
 
     @if (Library.Profiles is not null)
     {
-        <form class="inline-form" @onsubmit="CreateAsync">
-            <input placeholder="New player's name" maxlength="60" @bind="_newName" aria-label="New player's name" />
-            <button class="primary" type="submit" disabled="@(_busy || string.IsNullOrWhiteSpace(_newName))">+ Add player</button>
-        </form>
+        var admin = Library.IsAdmin(Library.CurrentGroup);
+        @if (admin)
+        {
+            <form class="inline-form" @onsubmit="CreateAsync">
+                <input placeholder="New player's name" maxlength="60" @bind="_newName" aria-label="New player's name" />
+                <button class="primary" type="submit" disabled="@(_busy || string.IsNullOrWhiteSpace(_newName))">+ New player</button>
+            </form>
+            <p class="muted small">For friends without an account. You look after their profile until they sign in and claim it with its invite code.</p>
+            <form class="inline-form" @onsubmit="AddByCodeAsync">
+                <input placeholder="Someone's player code" maxlength="20" @bind="_playerCode" aria-label="Player code" style="text-transform:uppercase" />
+                <button type="submit" disabled="@(_busy || string.IsNullOrWhiteSpace(_playerCode))">Add by player code</button>
+            </form>
+        }
+        else
+        {
+            <p class="muted small">Only the playgroup's admin can add or remove players.</p>
+        }
         <ErrorMessage Message="@_error" />
 
         @if (_loading)
@@ -49,8 +62,14 @@
                                     @Plural(stats.Games, "game") · @Plural(stats.Wins, "win")@(stats.WinRate is { } rate ? $" ({rate:P0})" : "")
                                 </span>
                                 <span class="muted small">@Plural(decks, "deck") · @Plural(profile.CardCount, "card") owned</span>
+                                @if (profile.Id == Library.CurrentGroup?.AdminProfileId) { <span class="badge">Admin</span> }
+                                else if (!profile.IsClaimed) { <span class="badge">Not signed in yet</span> }
                             </span>
                         </a>
+                        @if (admin && profile.Id != Library.CurrentGroup?.AdminProfileId)
+                        {
+                            <button class="link small" @onclick="() => RemoveAsync(profile)">Remove from group</button>
+                        }
                     </li>
                 }
             </ul>
@@ -84,6 +103,7 @@
     private List<Deck> _decks = [];
     private List<GameRecord> _games = [];
     private string _newName = "";
+    private string _playerCode = "";
     private bool _loading = true;
     private bool _busy;
     private int _pending;
@@ -162,6 +182,43 @@
         finally
         {
             _busy = false;
+        }
+    }
+
+    private async Task AddByCodeAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await Library.AddPlayerByCodeAsync(_playerCode);
+            _playerCode = "";
+            await LoadAsync();
+        }
+        catch (DeckLibraryException e)
+        {
+            _error = e.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RemoveAsync(PlayerProfile profile)
+    {
+        if (!await Js.InvokeAsync<bool>("confirm",
+                $"Remove {profile.Name} from {Library.CurrentGroup?.Name}? Their profile, collection and decks stay; they just leave this group."))
+            return;
+        _error = null;
+        try
+        {
+            await Library.RemovePlayerAsync(profile.Id);
+            _profiles.Remove(profile);
+        }
+        catch (DeckLibraryException e)
+        {
+            _error = e.Message;
         }
     }
 

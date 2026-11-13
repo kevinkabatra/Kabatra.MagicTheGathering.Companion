@@ -219,32 +219,144 @@ public class CloudTests
     }
 
     [Fact]
-    public async Task SupabaseDeckStore_UpsertsRowWithCardsAsJson()
+    public async Task SupabaseDeckStore_UpsertsTheDeckForItsOwnerProfile()
     {
-        var group = new Playgroup(Guid.NewGuid(), "Friday Night", "ABCD1234", UserId);
+        var group = new Playgroup(Guid.NewGuid(), "Friday Night", Guid.NewGuid());
+        var me = Guid.NewGuid();
         string? sent = null;
         var handler = new FakeHandler((request, body) =>
         {
-            if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath == "/rest/v1/decks")
-            {
-                sent = body;
-                return FakeHandler.Json($"[{body![..^1]},\"updated_at\":\"2026-01-01T00:00:00+00:00\"}}]");
-            }
-            return FakeHandler.Json("{}");
+            sent = body;
+            return FakeHandler.Json($"[{body![..^1]},\"updated_at\":\"2026-01-01T00:00:00+00:00\",\"owner\":{{\"name\":\"Sam\"}}}}]");
         });
-        var client = new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore());
-        var store = new SupabaseDeckStore(client, group);
+        var store = new SupabaseDeckStore(new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore()), group, me);
 
-        var deck = new Deck { Name = "Goblins", OwnerName = "Sam" };
+        var deck = new Deck { Name = "Goblins", OwnerName = "typed by hand" };
         deck.Add(TestCards.Krenko, DeckSection.Commander);
-
         var saved = await store.SaveAsync(deck);
 
-        Assert.Contains($"\"playgroup_id\":\"{group.Id}\"", sent);
+        var request = handler.Requests.Single().Request;
+        Assert.Equal("/rest/v1/decks", request.RequestUri!.AbsolutePath);
+        Assert.Contains("owner:player_profiles(name)", Uri.UnescapeDataString(request.RequestUri.Query));
+        Assert.Contains($"\"owner_profile_id\":\"{me}\"", sent); // no owner yet: it's yours
         Assert.Contains("\"section\":\"commander\"", sent);
         Assert.Contains("\"cover_image_url\":null", sent); // sent even when empty
+        // Decks belong to profiles now, not playgroups, and the owner's name comes from their profile.
+        Assert.DoesNotContain("playgroup_id", sent);
+        Assert.DoesNotContain("owner_name", sent);
         Assert.DoesNotContain("updated_at", sent);
+        Assert.Equal("Sam", saved.OwnerName);
         Assert.Equal("Krenko, Mob Boss", saved.Commanders.Single().Name);
-        Assert.Equal("resolution=merge-duplicates,return=representation", handler.Requests.Last().Request.Headers.GetValues("Prefer").Single());
+        Assert.Equal("resolution=merge-duplicates,return=representation", request.Headers.GetValues("Prefer").Single());
+    }
+
+    [Fact]
+    public async Task SupabaseDeckStore_ListsDecksWhoseOwnersAreInTheGroup()
+    {
+        var group = new Playgroup(Guid.NewGuid(), "Friday Night", Guid.NewGuid());
+        var handler = new FakeHandler((_, _) => FakeHandler.Json($$"""
+            [{ "id": "{{Guid.NewGuid()}}", "owner_profile_id": "{{Guid.NewGuid()}}", "name": "Burn", "format": "modern", "cards": [],
+               "updated_at": "2026-01-01T00:00:00Z", "owner": { "name": "Alex", "playgroup_profiles": [{ "playgroup_id": "{{group.Id}}" }] } }]
+            """));
+        var store = new SupabaseDeckStore(new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore()), group, Guid.NewGuid());
+
+        var deck = (await store.ListAsync()).Single();
+
+        var query = Uri.UnescapeDataString(handler.Requests.Single().Request.RequestUri!.Query);
+        Assert.Contains("owner:player_profiles!inner(name,playgroup_profiles!inner(playgroup_id))", query);
+        Assert.Contains($"owner.playgroup_profiles.playgroup_id=eq.{group.Id}", query);
+        Assert.Equal("Burn", deck.Name);
+        Assert.Equal("Alex", deck.OwnerName);
+    }
+
+    [Fact]
+    public async Task SupabaseDeckStore_SavingSomeoneElsesDeckFails()
+    {
+        var handler = new FakeHandler((_, _) => FakeHandler.Json("[]"));
+        var store = new SupabaseDeckStore(new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore()),
+            new Playgroup(Guid.NewGuid(), "Friday Night", Guid.NewGuid()), Guid.NewGuid());
+
+        var error = await Assert.ThrowsAsync<SupabaseException>(() => store.SaveAsync(new Deck { Name = "Burn" }));
+        Assert.Equal(403, error.Status);
+    }
+
+    // ----- Playgroups -----
+
+    private static (PlaygroupService Service, FakeHandler Handler) Playgroups(string response)
+    {
+        var handler = new FakeHandler((_, _) => FakeHandler.Json(response));
+        return (new PlaygroupService(new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore())), handler);
+    }
+
+    [Fact]
+    public async Task Playgroups_ListMine_NeverAsksForTheJoinCode()
+    {
+        var admin = Guid.NewGuid();
+        var (service, handler) = Playgroups($$"""[{ "id": "{{Guid.NewGuid()}}", "name": "Friday Night", "admin_profile_id": "{{admin}}" }]""");
+
+        var group = (await service.ListMineAsync()).Single();
+
+        Assert.DoesNotContain("join_code", handler.Requests.Single().Request.RequestUri!.Query);
+        Assert.Equal(admin, group.AdminProfileId);
+    }
+
+    [Theory]
+    [InlineData("create", "/rest/v1/rpc/create_playgroup", "\"group_name\":\"Friday Night\"")]
+    [InlineData("join", "/rest/v1/rpc/join_playgroup", "\"code\":\"ABCD2345\"")]
+    [InlineData("transfer", "/rest/v1/rpc/transfer_playgroup", "\"new_admin\":")]
+    public async Task Playgroups_CallTheDatabaseFunctions(string action, string path, string bodyPart)
+    {
+        var (service, handler) = Playgroups($$"""{ "id": "{{Guid.NewGuid()}}", "name": "Friday Night", "admin_profile_id": "{{Guid.NewGuid()}}" }""");
+
+        var group = action switch
+        {
+            "create" => await service.CreateAsync(" Friday Night "),
+            "join" => await service.JoinAsync(" abcd-2345 "),
+            _ => await service.TransferAsync(Guid.NewGuid(), Guid.NewGuid()),
+        };
+
+        var (request, body) = handler.Requests.Single();
+        Assert.Equal(path, request.RequestUri!.AbsolutePath);
+        Assert.Contains(bodyPart, body);
+        Assert.Equal("Friday Night", group.Name);
+    }
+
+    [Fact]
+    public async Task Playgroups_JoinCodeIsFetchedThroughTheAdminOnlyFunction()
+    {
+        var (service, handler) = Playgroups("\"JOIN2345\"");
+        var id = Guid.NewGuid();
+
+        Assert.Equal("JOIN2345", await service.GetJoinCodeAsync(id, reset: true));
+
+        var (request, body) = handler.Requests.Single();
+        Assert.Equal("/rest/v1/rpc/playgroup_join_code", request.RequestUri!.AbsolutePath);
+        Assert.Contains($"\"group_id\":\"{id}\"", body);
+        Assert.Contains("\"reset\":true", body);
+    }
+
+    [Fact]
+    public async Task Playgroups_AddByPlayerCode_AndRemoveAProfile()
+    {
+        var profile = Guid.NewGuid();
+        var (service, handler) = Playgroups($$"""{ "id": "{{profile}}", "name": "Sam" }""");
+        var group = Guid.NewGuid();
+
+        Assert.Equal(profile, await service.AddByPlayerCodeAsync(group, "play 2345"));
+        await service.RemoveProfileAsync(group, profile);
+
+        Assert.Equal("/rest/v1/rpc/add_profile_to_playgroup", handler.Requests[0].Request.RequestUri!.AbsolutePath);
+        Assert.Contains("\"code\":\"PLAY2345\"", handler.Requests[0].Body);
+        var remove = handler.Requests[1].Request;
+        Assert.Equal(HttpMethod.Delete, remove.Method);
+        Assert.Equal($"?playgroup_id=eq.{group}&profile_id=eq.{profile}", remove.RequestUri!.Query);
+    }
+
+    [Fact]
+    public async Task Playgroups_RenameThatComesBackEmptyMeansNotAdmin()
+    {
+        var (service, _) = Playgroups("[]");
+        var error = await Assert.ThrowsAsync<SupabaseException>(() => service.RenameAsync(Guid.NewGuid(), "New name"));
+        Assert.Equal(403, error.Status);
     }
 }

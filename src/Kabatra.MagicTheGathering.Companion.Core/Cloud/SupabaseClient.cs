@@ -104,12 +104,6 @@ public sealed class SupabaseClient
     public AuthSession? Session { get; private set; }
     public bool IsSignedIn => Session is not null;
 
-    /// <summary>
-    /// Set once the decks table turns out to have no owner_profile_id column (schema from before player profiles),
-    /// so decks keep working until the project's schema is updated.
-    /// </summary>
-    internal bool DecksLackOwnerProfile { get; set; }
-
     /// <summary>Raised when the user signs in or out.</summary>
     public event Action? SessionChanged;
 

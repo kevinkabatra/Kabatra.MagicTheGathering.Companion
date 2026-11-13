@@ -54,7 +54,7 @@ create table if not exists public.player_profiles (
 create table if not exists public.playgroups (
     id               uuid primary key default gen_random_uuid(),
     name             text not null check (char_length(name) between 1 and 80),
-    -- Anyone with it can add their own profile to the group.
+    -- Anyone with it can add their own profile to the group. Only the admin can read it (playgroup_join_code).
     join_code        text not null unique default public.random_code(8),
     -- Always a claimed profile. Hand the group over (transfer_playgroup) before deleting that profile.
     admin_profile_id uuid not null references public.player_profiles (id) on delete restrict,
@@ -527,17 +527,21 @@ begin
     return g;
 end $$;
 
--- Admin: issues a new join code if the old one got out.
-create or replace function public.reset_join_code(group_id uuid)
+-- Admin: the playgroup's join code, to share. Pass reset to issue a new one if the old one got out.
+create or replace function public.playgroup_join_code(group_id uuid, reset boolean default false)
 returns text language plpgsql security definer set search_path = public as $$
 declare
-    new_code text := public.random_code(8);
+    code text;
 begin
     if not public.is_playgroup_admin(group_id) then
-        raise exception 'Only the playgroup''s admin can reset its join code.' using errcode = '42501';
+        raise exception 'Only the playgroup''s admin can see or reset its join code.' using errcode = '42501';
     end if;
-    update public.playgroups set join_code = new_code where id = group_id;
-    return new_code;
+    if reset then
+        update public.playgroups set join_code = public.random_code(8) where id = group_id returning join_code into code;
+    else
+        select join_code into code from public.playgroups where id = group_id;
+    end if;
+    return code;
 end $$;
 
 -- ---------- Grants ----------
@@ -558,7 +562,7 @@ begin
         'public.create_my_profile(text)', 'public.claim_profile(text)', 'public.profile_claim_code(uuid, boolean)',
         'public.create_profile(text, uuid)', 'public.create_playgroup(text)', 'public.join_playgroup(text)',
         'public.add_profile_to_playgroup(uuid, text)', 'public.transfer_playgroup(uuid, uuid)',
-        'public.reset_join_code(uuid)']
+        'public.playgroup_join_code(uuid, boolean)']
     loop
         execute format('revoke all on function %s from public, anon', f);
         execute format('grant execute on function %s to authenticated', f);
@@ -573,7 +577,8 @@ grant select (id, name, user_id, created_by, player_code, collection, created_at
 grant update (name, collection) on public.player_profiles to authenticated;
 grant delete on public.player_profiles to authenticated;
 
-grant select, delete on public.playgroups to authenticated;
+-- Playgroups: join_code is left out of the readable columns; the admin reads it with playgroup_join_code().
+grant select (id, name, admin_profile_id, created_at), delete on public.playgroups to authenticated;
 grant update (name) on public.playgroups to authenticated;
 
 grant select, delete on public.playgroup_profiles to authenticated;

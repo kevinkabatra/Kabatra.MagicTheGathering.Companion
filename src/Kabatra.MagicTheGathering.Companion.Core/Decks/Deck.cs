@@ -27,19 +27,19 @@ public sealed class DeckCard
     public DeckCard Clone() => (DeckCard)MemberwiseClone();
 }
 
-/// <summary>A deck list belonging to a playgroup.</summary>
+/// <summary>A deck list, owned by a player profile and visible in every playgroup that player is in.</summary>
 public sealed class Deck
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "";
 
-    /// <summary>
-    /// Who owns this deck, as shown on screen. Kept in step with the owner's profile name when there is one,
-    /// and free text otherwise, for decks made before profiles or owned by someone without one.
-    /// </summary>
+    /// <summary>The owner's profile name, for showing on screen. Read from the profile; not saved with the deck.</summary>
     public string OwnerName { get; set; } = "";
 
-    /// <summary>The player profile that owns this deck. Anyone can still play it.</summary>
+    /// <summary>
+    /// The player profile that owns this deck. Anyone can play it; only whoever manages that profile can change it.
+    /// Null only for a deck that hasn't been saved yet, which then goes to the signed-in user's own profile.
+    /// </summary>
     public Guid? OwnerProfileId { get; set; }
 
     /// <summary>A <see cref="DeckFormat.Id"/>.</summary>

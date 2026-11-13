@@ -10,7 +10,7 @@ namespace Kabatra.MagicTheGathering.Companion.Tests;
 public class ProfileTests
 {
     private static readonly SupabaseOptions Options = new("https://example.supabase.co", "sb_publishable_test123");
-    private static readonly Playgroup Group = new(Guid.NewGuid(), "Friday Night", "ABCD1234", null);
+    private static readonly Playgroup Group = new(Guid.NewGuid(), "Friday Night", Guid.NewGuid());
 
     // ----- Collection -----
 
@@ -247,28 +247,6 @@ public class ProfileTests
     }
 
     [Fact]
-    public async Task SupabaseDeckStore_SendsTheOwnerProfile_EvenWhenCleared()
-    {
-        var bodies = new List<string>();
-        var handler = new FakeHandler((request, body) =>
-        {
-            bodies.Add(body ?? "");
-            return FakeHandler.Json($"[{body}]");
-        });
-        var store = new SupabaseDeckStore(new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore()), Group);
-        var owner = Guid.NewGuid();
-        var deck = new Deck { Name = "Burn", OwnerName = "Sam", OwnerProfileId = owner };
-
-        var saved = await store.SaveAsync(deck);
-        deck.OwnerProfileId = null;
-        await store.SaveAsync(deck);
-
-        Assert.Equal(owner, saved.OwnerProfileId);
-        Assert.Contains($"\"owner_profile_id\":\"{owner}\"", bodies[0]);
-        Assert.Contains("\"owner_profile_id\":null", bodies[1]);
-    }
-
-    [Fact]
     public async Task SupabaseGameHistoryStore_SavesSeatsAndReadsThemBack()
     {
         string? sent = null;
@@ -354,36 +332,9 @@ public class ProfileTests
     }
 }
 
-public class OldSchemaTests
+public class SchemaTests
 {
     private static readonly SupabaseOptions Options = new("https://example.supabase.co", "sb_publishable_test123");
-
-    [Fact]
-    public async Task SupabaseDeckStore_KeepsWorkingOnADatabaseWithoutOwnerProfiles()
-    {
-        var group = new Playgroup(Guid.NewGuid(), "Friday Night", "ABCD1234", null);
-        var handler = new FakeHandler((request, body) =>
-        {
-            var url = request.RequestUri!.ToString();
-            // What PostgREST says when a column from a newer schema.sql isn't there.
-            if (request.Method == HttpMethod.Get && url.Contains("owner_profile_id"))
-                return FakeHandler.Json("""{"code":"42703","message":"column decks.owner_profile_id does not exist"}""", System.Net.HttpStatusCode.BadRequest);
-            if (request.Method == HttpMethod.Post && body!.Contains("owner_profile_id"))
-                return FakeHandler.Json("""{"code":"PGRST204","message":"Could not find the 'owner_profile_id' column of 'decks' in the schema cache"}""", System.Net.HttpStatusCode.BadRequest);
-            if (request.Method == HttpMethod.Post) return FakeHandler.Json($"[{body}]");
-            return FakeHandler.Json($$"""[{"id":"{{Guid.NewGuid()}}","playgroup_id":"{{group.Id}}","name":"Burn","format":"modern","cards":[]}]""");
-        });
-        var client = new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore());
-
-        var decks = await new SupabaseDeckStore(client, group).ListAsync();
-        var saved = await new SupabaseDeckStore(client, group).SaveAsync(new Deck { Name = "Elves", OwnerProfileId = Guid.NewGuid() });
-
-        Assert.Equal("Burn", decks.Single().Name);
-        Assert.Equal("Elves", saved.Name);
-        // After the first miss, later requests go straight to the old columns.
-        Assert.Equal(3, handler.Requests.Count);
-        Assert.DoesNotContain("owner_profile_id", handler.Requests[2].Body);
-    }
 
     [Fact]
     public void SchemaProblems_AreRecognised()

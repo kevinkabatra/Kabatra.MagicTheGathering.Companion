@@ -21,7 +21,6 @@ public sealed class DeckLibrary(
     IReadOnlyList<AuthProvider> providers)
 {
     private const string GroupKey = "mtg-companion.playgroup";
-    private const string DisplayNameKey = "mtg-companion.display-name";
     private const string MyProfileKey = "mtg-companion.my-profile";
 
     private Task? _init;
@@ -35,7 +34,6 @@ public sealed class DeckLibrary(
     public string? Email => supabase.Session?.Email;
     public IReadOnlyList<Playgroup> Groups { get; private set; } = [];
     public Playgroup? CurrentGroup { get; private set; }
-    public string? DisplayName { get; private set; }
     public bool Ready { get; private set; }
 
     /// <summary>The signed-in user's own profile. Null until they've made or claimed one (see <see cref="Onboarding"/>).</summary>
@@ -57,7 +55,7 @@ public sealed class DeckLibrary(
     public string? Error { get; set; }
 
     /// <summary>Where decks are read and saved right now, or null if the user still has to sign in or pick a group.</summary>
-    public IDeckStore? Store => CurrentGroup is { } group && SignedIn ? new SupabaseDeckStore(supabase, group) : null;
+    public IDeckStore? Store => CurrentGroup is { } group && SignedIn && MyProfile is { } me ? new SupabaseDeckStore(supabase, group, me.Id) : null;
 
     /// <summary>Where player profiles are read and saved right now; null in the same cases as <see cref="Store"/>.</summary>
     public IProfileStore? Profiles => CurrentGroup is { } group && SignedIn ? new SupabaseProfileStore(supabase, group) : null;
@@ -84,7 +82,6 @@ public sealed class DeckLibrary(
     {
         try
         {
-            DisplayName = await storage.GetAsync(DisplayNameKey);
             if (!Configured) return;
             supabase.SessionChanged += () =>
             {
@@ -268,33 +265,76 @@ public sealed class DeckLibrary(
 
     private sealed record CachedProfile(Guid Id, string Name, Guid? UserId, string PlayerCode);
 
-    public Task CreateGroupAsync(string name, string displayName) => Run(async () =>
+    // ----- Playgroups -----
+
+    /// <summary>Whether the signed-in user is the playgroup's admin.</summary>
+    public bool IsAdmin(Playgroup? group) => group is not null && MyProfile is { } me && group.AdminProfileId == me.Id;
+
+    public Task CreateGroupAsync(string name) => Run(async () =>
     {
-        await RememberDisplayNameAsync(displayName);
-        var group = await playgroups.CreateAsync(name, displayName);
+        var group = await playgroups.CreateAsync(name);
         await LoadGroupsAsync(group.Id);
     });
 
-    public Task JoinGroupAsync(string code, string displayName) => Run(async () =>
+    public Task JoinGroupAsync(string joinCode) => Run(async () =>
     {
-        await RememberDisplayNameAsync(displayName);
-        var group = await playgroups.JoinAsync(code, displayName);
+        var group = await playgroups.JoinAsync(joinCode);
         await LoadGroupsAsync(group.Id);
     });
 
+    /// <summary>Takes the user's own profile out of the current group. The admin has to hand the group over first.</summary>
     public Task LeaveGroupAsync() => Run(async () =>
     {
-        if (CurrentGroup is null) return;
-        await playgroups.LeaveAsync(CurrentGroup.Id);
+        if (CurrentGroup is null || MyProfile is null) return;
+        if (IsAdmin(CurrentGroup))
+            throw new SupabaseException("You're this playgroup's admin. Hand it over to someone else before leaving, or delete it.", 400);
+        await playgroups.RemoveProfileAsync(CurrentGroup.Id, MyProfile.Id);
         await LoadGroupsAsync();
     });
 
-    public Task ResetInviteCodeAsync() => Run(async () =>
+    /// <summary>Admin: renames the current group.</summary>
+    public Task RenameGroupAsync(string name) => Run(async () =>
     {
         if (CurrentGroup is null) return;
-        var code = await playgroups.ResetInviteCodeAsync(CurrentGroup.Id);
-        CurrentGroup = CurrentGroup with { InviteCode = code };
-        Groups = Groups.Select(g => g.Id == CurrentGroup.Id ? CurrentGroup : g).ToList();
+        var renamed = await playgroups.RenameAsync(CurrentGroup.Id, name);
+        ReplaceCurrentGroup(renamed);
+    });
+
+    /// <summary>Admin: deletes the current group and its play history. Players and their decks stay.</summary>
+    public Task DeleteGroupAsync() => Run(async () =>
+    {
+        if (CurrentGroup is null) return;
+        await playgroups.DeleteAsync(CurrentGroup.Id);
+        await LoadGroupsAsync();
+    });
+
+    /// <summary>Admin: hands the current group to another signed-in player in it.</summary>
+    public Task TransferGroupAsync(Guid newAdminProfileId) => Run(async () =>
+    {
+        if (CurrentGroup is null) return;
+        ReplaceCurrentGroup(await playgroups.TransferAsync(CurrentGroup.Id, newAdminProfileId));
+    });
+
+    /// <summary>Admin: the current group's join code; <paramref name="reset"/> issues a new one.</summary>
+    public async Task<string?> GetJoinCodeAsync(bool reset = false)
+    {
+        string? code = null;
+        await Run(async () => { if (CurrentGroup is { } g) code = await playgroups.GetJoinCodeAsync(g.Id, reset); });
+        return code;
+    }
+
+    /// <summary>Admin: adds someone's profile to the current group with their player code.</summary>
+    public Task AddPlayerByCodeAsync(string playerCode) => Run(async () =>
+    {
+        if (CurrentGroup is null) return;
+        await playgroups.AddByPlayerCodeAsync(CurrentGroup.Id, playerCode);
+    });
+
+    /// <summary>Admin: takes a player out of the current group. Their profile and decks stay.</summary>
+    public Task RemovePlayerAsync(Guid profileId) => Run(async () =>
+    {
+        if (CurrentGroup is null) return;
+        await playgroups.RemoveProfileAsync(CurrentGroup.Id, profileId);
     });
 
     public async Task SelectGroupAsync(Guid groupId)
@@ -304,7 +344,19 @@ public sealed class DeckLibrary(
         Changed?.Invoke();
     }
 
-    public bool IsCreator(Playgroup group) => group.CreatedBy == supabase.Session?.UserId;
+    /// <summary>Call after the user saves their own profile, so its new name shows everywhere.</summary>
+    public async Task MyProfileSavedAsync(PlayerProfile saved)
+    {
+        if (saved.Id != MyProfile?.Id) return;
+        await SetMyProfileAsync(saved);
+        Changed?.Invoke();
+    }
+
+    private void ReplaceCurrentGroup(Playgroup group)
+    {
+        CurrentGroup = group;
+        Groups = Groups.Select(g => g.Id == group.Id ? group : g).OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
 
     private async Task LoadGroupsAsync(Guid? select = null)
     {
@@ -312,12 +364,6 @@ public sealed class DeckLibrary(
         var saved = Guid.TryParse(await storage.GetAsync(GroupKey), out var id) ? id : (Guid?)null;
         CurrentGroup = Groups.FirstOrDefault(g => g.Id == (select ?? saved)) ?? Groups.FirstOrDefault();
         if (CurrentGroup is not null) await storage.SetAsync(GroupKey, CurrentGroup.Id.ToString());
-    }
-
-    private async Task RememberDisplayNameAsync(string name)
-    {
-        DisplayName = name.Trim();
-        await storage.SetAsync(DisplayNameKey, DisplayName);
     }
 
     /// <summary>Runs an action, turning failures into <see cref="Error"/> and telling listeners either way.</summary>
