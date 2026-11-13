@@ -1,0 +1,13 @@
+@inject GameSession Session
+
+<section class="panel log">
+    <ol reversed>
+        @foreach (var entry in Session.Current!.Log.Reverse())
+        {
+            <li>
+                <span class="muted">T@(entry.Turn) · @entry.Timestamp.ToLocalTime().ToString("t")</span>
+                @entry.Message
+            </li>
+        }
+    </ol>
+</section>

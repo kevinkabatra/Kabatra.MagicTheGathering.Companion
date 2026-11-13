@@ -1,0 +1,39 @@
+@inject GameSession Session
+
+<section class="panel dice">
+    <div class="dice-buttons">
+        @foreach (var sides in DieSizes)
+        {
+            <button @onclick="() => RollAsync(sides)">d@(sides)</button>
+        }
+        <button @onclick="FlipAsync">Coin</button>
+        <button @onclick="PickPlayerAsync">Random player</button>
+    </div>
+    @if (_result is not null)
+    {
+        <p class="dice-result" @key="_rollCount">@_result</p>
+    }
+</section>
+
+@code {
+    private static readonly int[] DieSizes = [4, 6, 8, 10, 12, 20];
+    private string? _result;
+    private int _rollCount; // re-keys the result so the pop animation replays on identical results
+
+    private Task RollAsync(int sides) => ShowAsync($"d{sides}: {Session.Random.RollDie(sides)}");
+    private Task FlipAsync() => ShowAsync($"Coin: {(Session.Random.FlipCoin() ? "Heads" : "Tails")}");
+
+    private Task PickPlayerAsync()
+    {
+        var game = Session.Current!;
+        var alive = game.Players.Where(p => !p.IsEliminated(game.Format)).ToList();
+        return alive.Count == 0 ? Task.CompletedTask : ShowAsync($"Random player: {Session.Random.Pick(alive).Name}");
+    }
+
+    private async Task ShowAsync(string result)
+    {
+        _result = result;
+        _rollCount++;
+        await Session.UpdateAsync(g => g.Note($"🎲 {result}"));
+    }
+}

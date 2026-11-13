@@ -1,0 +1,102 @@
+@inject GameSession Session
+
+<section class="setup">
+    <h1>New game</h1>
+
+    <label class="field">
+        <span>Format</span>
+        <select @bind="_formatIndex">
+            @for (var i = 0; i < GameFormat.Presets.Count; i++)
+            {
+                var f = GameFormat.Presets[i];
+                <option value="@i">@f.Name (@f.StartingLife life)</option>
+            }
+            <option value="@CustomIndex">Custom…</option>
+        </select>
+    </label>
+
+    @if (_formatIndex == CustomIndex)
+    {
+        <div class="field-row">
+            <label class="field">
+                <span>Starting life</span>
+                <input type="number" min="1" max="999" @bind="_customLife" />
+            </label>
+            <label class="check">
+                <input type="checkbox" @bind="_customCommander" />
+                <span>Track commander damage</span>
+            </label>
+        </div>
+    }
+
+    <div class="field">
+        <span>Players</span>
+        <div class="stepper">
+            <button type="button" @onclick="() => SetCount(_names.Count - 1)" disabled="@(_names.Count <= Game.MinPlayers)" aria-label="Fewer players">−</button>
+            <strong>@_names.Count</strong>
+            <button type="button" @onclick="() => SetCount(_names.Count + 1)" disabled="@(_names.Count >= Game.MaxPlayers)" aria-label="More players">+</button>
+        </div>
+    </div>
+
+    <ol class="player-names">
+        @for (var i = 0; i < _names.Count; i++)
+        {
+            var index = i;
+            <li>
+                <span class="swatch" style="background:@Game.DefaultColors[index % Game.DefaultColors.Count]"></span>
+                <input placeholder="Player @(index + 1)" value="@_names[index]"
+                       @onchange="e => _names[index] = e.Value?.ToString() ?? string.Empty" />
+                <label class="radio" title="Goes first">
+                    <input type="radio" name="first" checked="@(_firstPlayer == index)" @onchange="() => _firstPlayer = index" />
+                    <span>first</span>
+                </label>
+            </li>
+        }
+    </ol>
+
+    <label class="radio">
+        <input type="radio" name="first" checked="@(_firstPlayer == RandomFirst)" @onchange="() => _firstPlayer = RandomFirst" />
+        <span>Pick who goes first at random</span>
+    </label>
+
+    <button class="primary big" @onclick="StartAsync">Start game</button>
+</section>
+
+@code {
+    private const int RandomFirst = -1;
+    private static readonly int CustomIndex = GameFormat.Presets.Count;
+
+    private int _formatIndex = GameFormat.Presets.ToList().IndexOf(GameFormat.Commander);
+    private int _customLife = 20;
+    private bool _customCommander;
+    private int _firstPlayer = RandomFirst;
+    private List<string> _names = ["", "", "", ""];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var last = await Session.GetLastPlayerNamesAsync();
+        if (last.Count >= Game.MinPlayers) _names = last.Take(Game.MaxPlayers).ToList();
+    }
+
+    private void SetCount(int count)
+    {
+        count = Math.Clamp(count, Game.MinPlayers, Game.MaxPlayers);
+        while (_names.Count < count) _names.Add("");
+        while (_names.Count > count) _names.RemoveAt(_names.Count - 1);
+        if (_firstPlayer >= count) _firstPlayer = RandomFirst;
+    }
+
+    private async Task StartAsync()
+    {
+        var format = _formatIndex == CustomIndex
+            ? GameFormat.Custom(Math.Clamp(_customLife, 1, 999), _customCommander)
+            : GameFormat.Presets[_formatIndex];
+
+        var randomFirst = _firstPlayer == RandomFirst;
+        var first = randomFirst ? Session.Random.Pick(Enumerable.Range(0, _names.Count).ToList()) : _firstPlayer;
+
+        var game = Game.Start(format, _names, first);
+        if (randomFirst) game.Note($"{game.ActivePlayer.Name} was randomly chosen to go first.");
+        await Session.StartAsync(game);
+    }
+}

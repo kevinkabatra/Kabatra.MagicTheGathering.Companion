@@ -1,0 +1,57 @@
+@inject GameSession Session
+@inject IJSRuntime Js
+
+@if (Session.Current is { } game)
+{
+    <header class="topbar">
+        <div class="turn">
+            <span class="muted">Turn @game.TurnNumber</span>
+            @if (game.Winner is { } winner)
+            {
+                <strong>🏆 @winner.Name wins!</strong>
+            }
+            else
+            {
+                <strong style="color:@game.ActivePlayer.Color">@game.ActivePlayer.Name</strong>
+            }
+        </div>
+        <div class="actions">
+            <button class="primary" @onclick="() => Session.UpdateAsync(g => g.NextTurn())" disabled="@(game.Winner is not null)">Next turn ▶</button>
+            <button @onclick="() => Session.UpdateAsync(g => g.Undo())" disabled="@(!game.CanUndo)" title="Undo last change">↶ Undo</button>
+            <button @onclick="() => Toggle(Panel.Dice)" class="@(_panel == Panel.Dice ? "on" : null)">🎲 Dice</button>
+            <button @onclick="() => Toggle(Panel.Log)" class="@(_panel == Panel.Log ? "on" : null)">📜 Log</button>
+            <button @onclick="NewGameAsync">New game</button>
+        </div>
+    </header>
+
+    @if (_panel == Panel.Dice)
+    {
+        <DiceTray />
+    }
+    else if (_panel == Panel.Log)
+    {
+        <GameLog />
+    }
+
+    <main class="board players-@game.Players.Count">
+        @foreach (var player in game.Players)
+        {
+            <PlayerCard @key="player.Id" Player="player" />
+        }
+    </main>
+}
+
+@code {
+    private enum Panel { None, Dice, Log }
+    private Panel _panel;
+
+    private void Toggle(Panel panel) => _panel = _panel == panel ? Panel.None : panel;
+
+    private async Task NewGameAsync()
+    {
+        // Avoid wiping a game in progress with one stray tap.
+        if (Session.Current is { Winner: null } && !await Js.InvokeAsync<bool>("confirm", "End this game and start a new one?"))
+            return;
+        await Session.EndAsync();
+    }
+}

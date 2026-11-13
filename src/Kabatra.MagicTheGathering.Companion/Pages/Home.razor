@@ -1,0 +1,33 @@
+﻿@page "/"
+@implements IDisposable
+@inject GameSession Session
+
+<PageTitle>MTG Companion</PageTitle>
+
+@if (!_loaded)
+{
+    <p class="muted center">Loading…</p>
+}
+else if (Session.Current is null)
+{
+    <SetupForm />
+}
+else
+{
+    <GameBoard />
+}
+
+@code {
+    private bool _loaded;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Session.Changed += OnChanged;
+        await Session.LoadAsync();
+        _loaded = true;
+    }
+
+    private void OnChanged() => StateHasChanged();
+
+    public void Dispose() => Session.Changed -= OnChanged;
+}

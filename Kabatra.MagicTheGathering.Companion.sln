@@ -1,0 +1,43 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{D7EFA3E1-AA71-4D8B-AA79-CEBC116FB047}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kabatra.MagicTheGathering.Companion", "src\Kabatra.MagicTheGathering.Companion\Kabatra.MagicTheGathering.Companion.csproj", "{EA24CD50-8875-4728-AF8D-1761D53602EE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kabatra.MagicTheGathering.Companion.Core", "src\Kabatra.MagicTheGathering.Companion.Core\Kabatra.MagicTheGathering.Companion.Core.csproj", "{6D9A00D0-1E79-4DDD-9F56-5A87A931AE93}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{F2BB11D9-7B15-47BA-BC39-09965EB5791F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kabatra.MagicTheGathering.Companion.Tests", "tests\Kabatra.MagicTheGathering.Companion.Tests\Kabatra.MagicTheGathering.Companion.Tests.csproj", "{A63AC062-F7C2-4831-9403-960FFEBF43A2}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{EA24CD50-8875-4728-AF8D-1761D53602EE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EA24CD50-8875-4728-AF8D-1761D53602EE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EA24CD50-8875-4728-AF8D-1761D53602EE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EA24CD50-8875-4728-AF8D-1761D53602EE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6D9A00D0-1E79-4DDD-9F56-5A87A931AE93}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6D9A00D0-1E79-4DDD-9F56-5A87A931AE93}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6D9A00D0-1E79-4DDD-9F56-5A87A931AE93}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6D9A00D0-1E79-4DDD-9F56-5A87A931AE93}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A63AC062-F7C2-4831-9403-960FFEBF43A2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A63AC062-F7C2-4831-9403-960FFEBF43A2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A63AC062-F7C2-4831-9403-960FFEBF43A2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A63AC062-F7C2-4831-9403-960FFEBF43A2}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{EA24CD50-8875-4728-AF8D-1761D53602EE} = {D7EFA3E1-AA71-4D8B-AA79-CEBC116FB047}
+		{6D9A00D0-1E79-4DDD-9F56-5A87A931AE93} = {D7EFA3E1-AA71-4D8B-AA79-CEBC116FB047}
+		{A63AC062-F7C2-4831-9403-960FFEBF43A2} = {F2BB11D9-7B15-47BA-BC39-09965EB5791F}
+	EndGlobalSection
+EndGlobal

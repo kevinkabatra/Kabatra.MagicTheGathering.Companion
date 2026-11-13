@@ -1,0 +1,96 @@
+@inject GameSession Session
+
+@{
+    var game = Session.Current!;
+    var isActive = game.ActivePlayer.Id == Player.Id && game.Winner is null;
+    var isOut = Player.IsEliminated(game.Format);
+    var opponents = game.Players.Where(p => p.Id != Player.Id).ToList();
+}
+
+<article class="player @(isActive ? "active" : null) @(isOut ? "out" : null) @(_flipped ? "flipped" : null)"
+         style="--player-color:@Player.Color">
+    <header>
+        @if (_renaming)
+        {
+            <input class="rename" value="@Player.Name" @onchange="RenameAsync" @onblur="() => _renaming = false" autofocus />
+        }
+        else
+        {
+            <h2 @onclick="() => _renaming = true" title="Tap to rename">@Player.Name</h2>
+        }
+        @if (isActive) { <span class="badge">Their turn</span> }
+        <div class="tools">
+            <button class="icon" @onclick="() => _flipped = !_flipped" title="Rotate for the player across the table" aria-label="Rotate card">⟲</button>
+            <button class="icon" @onclick="ToggleConcedeAsync" title="@(Player.Conceded ? "Rejoin" : "Concede")" aria-label="@(Player.Conceded ? "Rejoin" : "Concede")">@(Player.Conceded ? "↩" : "⚑")</button>
+        </div>
+    </header>
+
+    <div class="life">
+        <button class="life-btn" @onclick="() => Life(-1)" aria-label="Lose 1 life">−</button>
+        <div class="life-total">
+            <span class="number">@Player.Life</span>
+            @if (isOut) { <span class="out-label">Out</span> }
+        </div>
+        <button class="life-btn" @onclick="() => Life(+1)" aria-label="Gain 1 life">+</button>
+    </div>
+    <div class="life-small">
+        <button @onclick="() => Life(-5)">−5</button>
+        <button @onclick="() => Life(-10)">−10</button>
+        <button @onclick="() => Life(+5)">+5</button>
+        <button @onclick="() => Life(+10)">+10</button>
+    </div>
+
+    <div class="counters">
+        @foreach (var (kind, label, value) in Counters())
+        {
+            <div class="counter @(value > 0 ? "nonzero" : null)">
+                <span class="label">@label</span>
+                <button @onclick="() => Adjust(kind, -1)" aria-label="Remove @label">−</button>
+                <span class="value">@value</span>
+                <button @onclick="() => Adjust(kind, +1)" aria-label="Add @label">+</button>
+            </div>
+        }
+    </div>
+
+    @if (game.Format.TracksCommanderDamage && opponents.Count > 0)
+    {
+        <div class="commander">
+            <span class="section-label">Commander damage taken</span>
+            @foreach (var opp in opponents)
+            {
+                var dmg = Player.CommanderDamageFrom(opp.Id);
+                <div class="counter @(dmg > 0 ? "nonzero" : null) @(dmg >= game.Format.CommanderDamageToLose ? "lethal" : null)">
+                    <span class="label"><span class="dot" style="background:@opp.Color"></span>@opp.Name</span>
+                    <button @onclick="() => Commander(opp.Id, -1)" aria-label="Remove commander damage from @opp.Name">−</button>
+                    <span class="value">@dmg</span>
+                    <button @onclick="() => Commander(opp.Id, +1)" aria-label="Add commander damage from @opp.Name">+</button>
+                </div>
+            }
+        </div>
+    }
+</article>
+
+@code {
+    [Parameter, EditorRequired] public Player Player { get; set; } = default!;
+
+    private bool _flipped;
+    private bool _renaming;
+
+    private IEnumerable<(CounterKind Kind, string Label, int Value)> Counters()
+    {
+        yield return (CounterKind.Poison, "Poison", Player.Poison);
+        yield return (CounterKind.Energy, "Energy", Player.Energy);
+        yield return (CounterKind.Experience, "Experience", Player.Experience);
+    }
+
+    private Task Life(int delta) => Session.UpdateAsync(g => g.AdjustLife(Player.Id, delta));
+    private Task Adjust(CounterKind kind, int delta) => Session.UpdateAsync(g => g.AdjustCounter(Player.Id, kind, delta));
+    private Task Commander(Guid sourceId, int delta) => Session.UpdateAsync(g => g.AdjustCommanderDamage(Player.Id, sourceId, delta));
+    private Task ToggleConcedeAsync() => Session.UpdateAsync(g => g.SetConceded(Player.Id, !Player.Conceded));
+
+    private async Task RenameAsync(ChangeEventArgs e)
+    {
+        _renaming = false;
+        await Session.UpdateAsync(g => g.RenamePlayer(Player.Id, e.Value?.ToString() ?? ""));
+    }
+}

@@ -1,0 +1,224 @@
+/* ---------- Theme ---------- */
+:root {
+    color-scheme: dark;
+    --bg: #111317;
+    --surface: #1b1e24;
+    --surface-2: #252a32;
+    --border: #333a45;
+    --text: #eef0f3;
+    --muted: #9aa3af;
+    --accent: #e0a84b;
+    --danger: #ef4444;
+    --radius: 14px;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: light) {
+    :root {
+        color-scheme: light;
+        --bg: #f3f4f6;
+        --surface: #ffffff;
+        --surface-2: #eef0f3;
+        --border: #d6dae0;
+        --text: #15181d;
+        --muted: #5f6873;
+        --accent: #b7791f;
+    }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    -webkit-tap-highlight-color: transparent;
+}
+
+#app { min-height: 100vh; }
+
+.muted { color: var(--muted); }
+.center { text-align: center; }
+
+button {
+    font: inherit;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.5rem 0.9rem;
+    cursor: pointer;
+    touch-action: manipulation; /* no double-tap zoom when tapping +1 quickly */
+    user-select: none;
+}
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:active:not(:disabled) { transform: scale(0.97); }
+button:disabled { opacity: 0.4; cursor: default; }
+button.primary { background: var(--accent); color: #1a1205; border-color: var(--accent); font-weight: 600; }
+button.on { border-color: var(--accent); color: var(--accent); }
+button.big { font-size: 1.15rem; padding: 0.8rem 1.4rem; width: 100%; }
+button.icon { padding: 0.25rem 0.55rem; background: transparent; }
+
+input, select {
+    font: inherit;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.55rem 0.7rem;
+}
+
+/* ---------- Setup ---------- */
+.setup {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 1.5rem 16px 3rem;
+    display: grid;
+    gap: 1rem;
+}
+.setup h1 { margin: 0 0 0.5rem; }
+.field { display: grid; gap: 0.35rem; }
+.field > span { color: var(--muted); font-size: 0.9rem; }
+.field-row { display: flex; gap: 1rem; align-items: end; flex-wrap: wrap; }
+.check, .radio { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+.stepper { display: flex; align-items: center; gap: 1rem; }
+.stepper button { width: 2.6rem; height: 2.6rem; font-size: 1.3rem; padding: 0; }
+.stepper strong { font-size: 1.4rem; min-width: 1.5rem; text-align: center; }
+.player-names { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.player-names li { display: flex; align-items: center; gap: 0.6rem; }
+.player-names input:not([type]) { flex: 1; min-width: 0; }
+.player-names .radio span { color: var(--muted); font-size: 0.85rem; }
+.swatch { width: 0.9rem; height: 2.3rem; border-radius: 4px; flex: none; }
+
+/* ---------- Top bar ---------- */
+.topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem 16px;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+}
+.turn { display: flex; flex-direction: column; line-height: 1.2; }
+.turn strong { font-size: 1.15rem; }
+.actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+/* ---------- Panels ---------- */
+.panel {
+    margin: 0.75rem 16px 0;
+    padding: 0.75rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+.dice-buttons { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.dice-result { font-size: 1.6rem; font-weight: 700; margin: 0.6rem 0 0; animation: pop 0.25s ease-out; }
+@keyframes pop { from { transform: scale(0.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.log ol { margin: 0; padding-left: 1.4rem; max-height: 40vh; overflow-y: auto; display: grid; gap: 0.25rem; }
+.log .muted { font-size: 0.8rem; margin-right: 0.4rem; }
+
+/* ---------- Board ---------- */
+.board {
+    display: grid;
+    gap: 0.75rem;
+    padding: 0.75rem 16px 2rem;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+}
+/* Keep even groups in tidy rows (2x2, 3x2, 4x2) instead of e.g. 3 + 1. */
+@media (min-width: 640px) {
+    .board.players-2, .board.players-4 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 960px) {
+    .board.players-3, .board.players-6 { grid-template-columns: repeat(3, 1fr); }
+}
+@media (min-width: 1280px) {
+    .board.players-8 { grid-template-columns: repeat(4, 1fr); }
+}
+
+.player {
+    position: relative;
+    display: grid;
+    gap: 0.6rem;
+    padding: 0.8rem;
+    background: var(--surface);
+    border: 2px solid var(--border);
+    border-top: 6px solid var(--player-color);
+    border-radius: var(--radius);
+    transition: transform 0.3s, opacity 0.3s, border-color 0.2s;
+}
+.player.active { border-color: var(--player-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--player-color) 35%, transparent); }
+.player.flipped { transform: rotate(180deg); }
+.player.out { opacity: 0.55; }
+
+.player header { display: flex; align-items: center; gap: 0.5rem; }
+.player h2 { margin: 0; font-size: 1.15rem; cursor: text; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player .rename { flex: 1; min-width: 0; }
+.player .tools { margin-left: auto; display: flex; }
+.badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    background: var(--player-color);
+    color: #fff;
+    white-space: nowrap;
+}
+
+.life { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; }
+.life-btn { height: 5rem; font-size: 2.4rem; font-weight: 300; border-radius: 12px; }
+.life-total { display: grid; justify-items: center; min-width: 6.5rem; }
+.life-total .number { font-size: 4.2rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.out-label { color: var(--danger); font-weight: 700; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.08em; }
+.life-small { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.35rem; }
+.life-small button { padding: 0.4rem 0; }
+
+.counters, .commander { display: grid; gap: 0.3rem; }
+.section-label { color: var(--muted); font-size: 0.8rem; }
+.counter {
+    display: grid;
+    grid-template-columns: 1fr 2.2rem 2.2rem 2.2rem;
+    align-items: center;
+    gap: 0.3rem;
+    color: var(--muted);
+}
+.counter .label { display: flex; align-items: center; gap: 0.4rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.counter button { padding: 0.25rem 0; }
+.counter .value { text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+.counter.nonzero { color: var(--text); }
+.counter.lethal .value { color: var(--danger); }
+.dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; flex: none; }
+
+/* ---------- Blazor template bits ---------- */
+#blazor-error-ui {
+    background: lightyellow;
+    color: #111;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    display: none;
+    left: 0;
+    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+#blazor-error-ui .dismiss { cursor: pointer; position: absolute; right: 0.75rem; top: 0.5rem; }
+
+.blazor-error-boundary { background: #b32121; padding: 1rem; color: white; }
+.blazor-error-boundary::after { content: "An error has occurred."; }
+
+.loading-progress { position: relative; display: block; width: 8rem; height: 8rem; margin: 20vh auto 1rem auto; }
+.loading-progress circle { fill: none; stroke: var(--surface-2); stroke-width: 0.6rem; transform-origin: 50% 50%; transform: rotate(-90deg); }
+.loading-progress circle:last-child {
+    stroke: var(--accent);
+    stroke-dasharray: calc(3.141 * var(--blazor-load-percentage, 0%) * 0.8), 500%;
+    transition: stroke-dasharray 0.05s ease-in-out;
+}
+.loading-progress-text { position: absolute; text-align: center; font-weight: bold; inset: calc(20vh + 3.25rem) 0 auto 0.2rem; }
+.loading-progress-text:after { content: var(--blazor-load-percentage-text, "Loading"); }
