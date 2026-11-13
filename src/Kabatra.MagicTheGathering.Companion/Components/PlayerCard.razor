@@ -5,10 +5,14 @@
     var isActive = game.ActivePlayer.Id == Player.Id && game.Winner is null;
     var isOut = Player.IsEliminated(game.Format);
     var opponents = game.Players.Where(p => p.Id != Player.Id).ToList();
+    var style = Player.DeckImageUrl is null
+        ? $"--player-color:{Player.Color}"
+        : $"--player-color:{Player.Color};--deck-art:url('{Player.DeckImageUrl}')";
 }
 
 <article class="player @(isActive ? "active" : null) @(isOut ? "out" : null) @(_flipped ? "flipped" : null)"
-         style="--player-color:@Player.Color">
+         style="@style">
+    @if (Player.DeckImageUrl is not null) { <div class="deck-art" aria-hidden="true"></div> }
     <header>
         @if (_renaming)
         {
@@ -16,7 +20,10 @@
         }
         else
         {
-            <h2 @onclick="() => _renaming = true" title="Tap to rename">@Player.Name</h2>
+            <div class="names">
+                <h2 @onclick="() => _renaming = true" title="Tap to rename">@Player.Name</h2>
+                @if (Player.DeckName is not null) { <span class="deck-name">@Player.DeckName</span> }
+            </div>
         }
         @if (isActive) { <span class="badge">Their turn</span> }
         <div class="tools">

@@ -46,30 +46,38 @@ public sealed class Game
         }
     }
 
-    public static Game Start(GameFormat format, IEnumerable<string> playerNames, int firstPlayerIndex = 0, TimeProvider? clock = null)
+    public static Game Start(GameFormat format, IEnumerable<string> playerNames, int firstPlayerIndex = 0, TimeProvider? clock = null) =>
+        Start(format, (playerNames ?? throw new ArgumentNullException(nameof(playerNames))).Select(n => new PlayerSeat(n)), firstPlayerIndex, clock);
+
+    public static Game Start(GameFormat format, IEnumerable<PlayerSeat> seats, int firstPlayerIndex = 0, TimeProvider? clock = null)
     {
         ArgumentNullException.ThrowIfNull(format);
-        var names = playerNames.ToList();
-        if (names.Count is < MinPlayers or > MaxPlayers)
-            throw new ArgumentOutOfRangeException(nameof(playerNames), $"A game needs {MinPlayers}-{MaxPlayers} players.");
-        if (firstPlayerIndex < 0 || firstPlayerIndex >= names.Count)
+        var list = seats.ToList();
+        if (list.Count is < MinPlayers or > MaxPlayers)
+            throw new ArgumentOutOfRangeException(nameof(seats), $"A game needs {MinPlayers}-{MaxPlayers} players.");
+        if (firstPlayerIndex < 0 || firstPlayerIndex >= list.Count)
             throw new ArgumentOutOfRangeException(nameof(firstPlayerIndex));
 
         var state = new GameState
         {
             Format = format,
             ActivePlayerIndex = firstPlayerIndex,
-            Players = names.Select((name, i) => new Player
+            Players = list.Select((seat, i) => new Player
             {
-                Name = string.IsNullOrWhiteSpace(name) ? $"Player {i + 1}" : name.Trim(),
+                Name = string.IsNullOrWhiteSpace(seat.Name) ? $"Player {i + 1}" : seat.Name.Trim(),
                 Color = DefaultColors[i % DefaultColors.Count],
                 Life = format.StartingLife,
+                DeckId = seat.DeckId,
+                DeckName = string.IsNullOrWhiteSpace(seat.DeckName) ? null : seat.DeckName.Trim(),
+                DeckImageUrl = seat.DeckImageUrl,
             }).ToList(),
         };
 
         var game = new Game(state, clock);
         state.StartedAt = game._clock.GetUtcNow();
         game.AddLog($"Game started ({format.Name}, {format.StartingLife} life). {game.ActivePlayer.Name} goes first.");
+        foreach (var p in state.Players.Where(p => p.DeckName is not null))
+            game.AddLog($"{p.Name} is playing {p.DeckName}.");
         return game;
     }
 

@@ -1,7 +1,11 @@
 @inject GameSession Session
+@inject DeckLibrary Library
 
 <section class="setup">
-    <h1>New game</h1>
+    <div class="row spread">
+        <h1>New game</h1>
+        <a href="decks" class="button">Decks →</a>
+    </div>
 
     <label class="field">
         <span>Format</span>
@@ -44,8 +48,25 @@
             var index = i;
             <li>
                 <span class="swatch" style="background:@Game.DefaultColors[index % Game.DefaultColors.Count]"></span>
-                <input placeholder="Player @(index + 1)" value="@_names[index]"
-                       @onchange="e => _names[index] = e.Value?.ToString() ?? string.Empty" />
+                <div class="seat">
+                    <input placeholder="Player @(index + 1)" value="@_names[index]"
+                           @onchange="e => _names[index] = e.Value?.ToString() ?? string.Empty" aria-label="Player @(index + 1) name" />
+                    @if (_decks.Count > 0)
+                    {
+                        <select value="@(_deckIds[index]?.ToString() ?? "")" @onchange="e => PickDeck(index, e.Value?.ToString())" aria-label="Player @(index + 1) deck">
+                            <option value="">No deck</option>
+                            @foreach (var owner in _decks.GroupBy(d => string.IsNullOrWhiteSpace(d.OwnerName) ? "Unassigned" : d.OwnerName))
+                            {
+                                <optgroup label="@owner.Key">
+                                    @foreach (var deck in owner)
+                                    {
+                                        <option value="@deck.Id">@deck.Name (@deck.GetFormat().Name)</option>
+                                    }
+                                </optgroup>
+                            }
+                        </select>
+                    }
+                </div>
                 <label class="radio" title="Goes first">
                     <input type="radio" name="first" checked="@(_firstPlayer == index)" @onchange="() => _firstPlayer = index" />
                     <span>first</span>
@@ -53,6 +74,11 @@
             </li>
         }
     </ol>
+
+    @if (_formatHint is not null)
+    {
+        <p class="muted small">@_formatHint</p>
+    }
 
     <label class="radio">
         <input type="radio" name="first" checked="@(_firstPlayer == RandomFirst)" @onchange="() => _firstPlayer = RandomFirst" />
@@ -71,19 +97,72 @@
     private bool _customCommander;
     private int _firstPlayer = RandomFirst;
     private List<string> _names = ["", "", "", ""];
+    private List<Guid?> _deckIds = [null, null, null, null];
+    private List<Deck> _decks = [];
+    private string? _formatHint;
 
     protected override async Task OnInitializedAsync()
     {
         var last = await Session.GetLastPlayerNamesAsync();
-        if (last.Count >= Game.MinPlayers) _names = last.Take(Game.MaxPlayers).ToList();
+        if (last.Count >= Game.MinPlayers)
+        {
+            _names = last.Take(Game.MaxPlayers).ToList();
+            _deckIds = _names.Select(_ => (Guid?)null).ToList();
+        }
+
+        // Decks are optional: if they can't be loaded (offline, not signed in), setup works as before.
+        try
+        {
+            await Library.InitializeAsync();
+            if (Library.Store is { } store)
+                _decks = (await store.ListAsync())
+                    .OrderBy(d => d.OwnerName, StringComparer.CurrentCultureIgnoreCase)
+                    .ThenBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase)
+                    .ToList();
+        }
+        catch (Exception e) when (e is SupabaseException or HttpRequestException) { }
     }
 
     private void SetCount(int count)
     {
         count = Math.Clamp(count, Game.MinPlayers, Game.MaxPlayers);
-        while (_names.Count < count) _names.Add("");
-        while (_names.Count > count) _names.RemoveAt(_names.Count - 1);
+        while (_names.Count < count) { _names.Add(""); _deckIds.Add(null); }
+        while (_names.Count > count) { _names.RemoveAt(_names.Count - 1); _deckIds.RemoveAt(_deckIds.Count - 1); }
         if (_firstPlayer >= count) _firstPlayer = RandomFirst;
+        UpdateFormatFromDecks();
+    }
+
+    private void PickDeck(int index, string? value)
+    {
+        _deckIds[index] = Guid.TryParse(value, out var id) ? id : null;
+        var deck = _decks.FirstOrDefault(d => d.Id == id);
+        // Fill in the player's name from the deck's owner if the seat is still blank.
+        if (deck is not null && string.IsNullOrWhiteSpace(_names[index]) && !string.IsNullOrWhiteSpace(deck.OwnerName))
+            _names[index] = deck.OwnerName;
+        UpdateFormatFromDecks();
+    }
+
+    /// <summary>When everyone's chosen deck is for the same format, switch the game to it.</summary>
+    private void UpdateFormatFromDecks()
+    {
+        var formats = _deckIds.OfType<Guid>()
+            .Select(id => _decks.FirstOrDefault(d => d.Id == id)?.GetFormat())
+            .OfType<DeckFormat>()
+            .Where(f => f.ScryfallKey is not null) // casual decks don't imply a format
+            .Select(f => f.GameFormat)
+            .Distinct()
+            .ToList();
+
+        _formatHint = null;
+        if (formats.Count == 1)
+        {
+            _formatIndex = GameFormat.Presets.ToList().IndexOf(formats[0]);
+            _formatHint = $"Format set to {formats[0].Name} to match the decks.";
+        }
+        else if (formats.Count > 1)
+        {
+            _formatHint = "The chosen decks are for different formats.";
+        }
     }
 
     private async Task StartAsync()
@@ -95,7 +174,13 @@
         var randomFirst = _firstPlayer == RandomFirst;
         var first = randomFirst ? Session.Random.Pick(Enumerable.Range(0, _names.Count).ToList()) : _firstPlayer;
 
-        var game = Game.Start(format, _names, first);
+        var seats = _names.Select((name, i) =>
+        {
+            var deck = _decks.FirstOrDefault(d => d.Id == _deckIds[i]);
+            return new PlayerSeat(name, deck?.Id, deck?.Name, deck?.CoverImageUrl);
+        });
+
+        var game = Game.Start(format, seats, first);
         if (randomFirst) game.Note($"{game.ActivePlayer.Name} was randomly chosen to go first.");
         await Session.StartAsync(game);
     }

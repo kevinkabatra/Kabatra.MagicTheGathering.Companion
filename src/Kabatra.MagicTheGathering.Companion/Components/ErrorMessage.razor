@@ -1,0 +1,12 @@
+@* Shows the deck library's latest error, if any. *@
+@inject DeckLibrary Library
+
+@if (!string.IsNullOrEmpty(Message ?? Library.Error))
+{
+    <p class="error" role="alert">@(Message ?? Library.Error)</p>
+}
+
+@code {
+    /// <summary>A specific message to show instead of the library's error.</summary>
+    [Parameter] public string? Message { get; set; }
+}
