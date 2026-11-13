@@ -1,0 +1,33 @@
+@* A full-size card image over the page. Tap anywhere to close. *@
+@if (Card is { } card)
+{
+    <div class="overlay" @onclick="OnClose" role="dialog" aria-label="@card.Name">
+        <figure class="card-preview" @onclick:stopPropagation="true">
+            @if (card.ImageNormal is not null)
+            {
+                <img src="@card.ImageNormal" alt="@card.Name" />
+            }
+            else
+            {
+                <div class="text-card">
+                    <strong>@card.Name</strong> <ManaCost Cost="@card.ManaCost" />
+                    <p>@card.TypeLine</p>
+                    <p class="oracle">@card.OracleText</p>
+                </div>
+            }
+            <figcaption>
+                <span>@card.SetName (@card.SetCode.ToUpperInvariant()) #@card.CollectorNumber</span>
+                @if (card.ScryfallUri is not null)
+                {
+                    <a href="@card.ScryfallUri" target="_blank" rel="noopener">Scryfall ↗</a>
+                }
+                <button @onclick="OnClose">Close</button>
+            </figcaption>
+        </figure>
+    </div>
+}
+
+@code {
+    [Parameter] public CardInfo? Card { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+}

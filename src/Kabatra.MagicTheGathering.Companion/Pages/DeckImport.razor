@@ -1,0 +1,136 @@
+@page "/decks/import"
+@inject DeckLibrary Library
+@inject CardCatalog Catalog
+@inject NavigationManager Nav
+
+<PageTitle>Import deck · MTG Companion</PageTitle>
+
+<div class="page">
+    <header class="page-head">
+        <a href="decks" class="back">← Decks</a>
+        <h1>Import a deck list</h1>
+    </header>
+
+    @if (Library.Store is null)
+    {
+        <AccountPanel />
+    }
+    else
+    {
+        <section class="setup-like">
+            <p class="muted">
+                Paste a list exported from MTG Arena, MTGO, Moxfield, Archidekt or similar, one card per line,
+                like <code>4 Lightning Bolt</code> or <code>1 Sol Ring (C21) 263</code>.
+            </p>
+            <textarea rows="14" @bind="_text" @bind:event="oninput" @bind:after="() => _confirmedProblems = false" placeholder="@Example" aria-label="Deck list"></textarea>
+
+            <div class="field-row">
+                <label class="field grow">
+                    <span>Deck name</span>
+                    <input @bind="_name" placeholder="Taken from the list if it has one" maxlength="120" />
+                </label>
+                <label class="field grow">
+                    <span>Player</span>
+                    <input @bind="_owner" maxlength="60" />
+                </label>
+                <label class="field grow">
+                    <span>Format</span>
+                    <select @bind="_format">
+                        @foreach (var f in DeckFormat.All) { <option value="@f.Id">@f.Name</option> }
+                    </select>
+                </label>
+            </div>
+
+            @if (_problems.Count > 0)
+            {
+                <div class="legality bad">
+                    <strong>Some lines couldn't be read and will be skipped:</strong>
+                    <ul>@foreach (var p in _problems) { <li>@p</li> }</ul>
+                </div>
+            }
+
+            <ErrorMessage Message="@_error" />
+            <button class="primary big" @onclick="ImportAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_text))">
+                @(_busy ? _status : _problems.Count > 0 ? "Import anyway" : "Import")
+            </button>
+        </section>
+    }
+</div>
+
+@code {
+    private const string Example = "Commander\n1 Krenko, Mob Boss\n\nDeck\n1 Sol Ring\n30 Mountain";
+    private string _text = "";
+    private string _name = "";
+    private string _owner = "";
+    private string _format = DeckFormat.Commander.Id;
+    private List<string> _problems = [];
+    private bool _confirmedProblems;
+    private bool _busy;
+    private string _status = "";
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Library.InitializeAsync();
+        _owner = Library.DisplayName ?? "";
+    }
+
+    private async Task ImportAsync()
+    {
+        if (Library.Store is not { } store) return;
+        _error = null;
+
+        var parsed = DeckListText.Parse(_text);
+        if (parsed.Cards.Count == 0)
+        {
+            _error = "No cards found in that list.";
+            return;
+        }
+        _problems = parsed.Problems.ToList();
+        if (_problems.Count > 0 && !_confirmedProblems)
+        {
+            _confirmedProblems = true; // the next click imports anyway
+            return;
+        }
+
+        var deck = new Deck
+        {
+            Name = !string.IsNullOrWhiteSpace(_name) ? _name.Trim() : parsed.Name ?? "Imported deck",
+            OwnerName = _owner.Trim(),
+            Format = GuessFormat(parsed.Cards),
+            Cards = parsed.Cards.ToList(),
+        };
+
+        _busy = true;
+        try
+        {
+            _status = $"Looking up {deck.Cards.Count} cards…";
+            StateHasChanged();
+            var resolved = await Catalog.ResolveAsync(deck);
+            deck.CoverImageUrl = deck.Commanders
+                .Select(c => c.ScryfallId is { } id && resolved.Cards.TryGetValue(id, out var card) ? card.ArtCrop : null)
+                .FirstOrDefault(url => url is not null);
+
+            _status = "Saving…";
+            StateHasChanged();
+            var saved = await store.SaveAsync(deck);
+            Nav.NavigateTo($"decks/{saved.Id}");
+        }
+        catch (Exception e) when (e is ScryfallException or SupabaseException or HttpRequestException)
+        {
+            _error = $"Import failed: {e.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>A list with a commander section can't be a 60-card constructed deck, so don't leave it as one.</summary>
+    private string GuessFormat(IReadOnlyList<DeckCard> cards)
+    {
+        var chosen = DeckFormat.FromId(_format);
+        if (cards.Any(c => c.Section == DeckSection.Commander) && !chosen.HasCommander) return DeckFormat.Commander.Id;
+        return chosen.Id;
+    }
+}

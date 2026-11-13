@@ -17,6 +17,13 @@ public sealed class Player
     /// <summary>A CSS color used to tell players apart on screen.</summary>
     public string Color { get; set; } = "#6b7280";
 
+    /// <summary>The deck this player brought, if they picked one at setup.</summary>
+    public Guid? DeckId { get; set; }
+    public string? DeckName { get; set; }
+
+    /// <summary>Art for the player's card, usually their commander's.</summary>
+    public string? DeckImageUrl { get; set; }
+
     public int Life { get; set; }
     public int Poison { get; set; }
     public int Energy { get; set; }

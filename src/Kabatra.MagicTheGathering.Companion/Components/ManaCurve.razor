@@ -1,0 +1,35 @@
+@* Bar chart of how many non-land spells the deck has at each mana value. *@
+
+@{
+    var buckets = new int[MaxBucket + 1];
+    foreach (var line in Deck.Cards.Where(l => l.Section != DeckSection.Sideboard))
+    {
+        if (line.ScryfallId is not { } id || !Cards.TryGetValue(id, out var card) || card.MainType == "Land") continue;
+        buckets[Math.Min(MaxBucket, (int)card.ManaValue)] += line.Quantity;
+    }
+    var tallest = Math.Max(1, buckets.Max());
+    var lands = Deck.Cards.Where(l => l.Section != DeckSection.Sideboard && l.ScryfallId is { } i && Cards.TryGetValue(i, out var c) && c.MainType == "Land").Sum(l => l.Quantity);
+}
+
+@if (buckets.Sum() > 0)
+{
+    <section class="curve" aria-label="Mana curve">
+        <h3>Mana curve <span class="muted small">· @lands lands</span></h3>
+        <div class="bars">
+            @for (var i = 0; i <= MaxBucket; i++)
+            {
+                <div class="bar-col" title="@buckets[i] spell(s) at @(i == MaxBucket ? $"{MaxBucket}+" : i.ToString())">
+                    <span class="count">@(buckets[i] > 0 ? buckets[i] : "")</span>
+                    <div class="bar" style="height:@(buckets[i] * 100 / tallest)%"></div>
+                    <span class="label">@(i == MaxBucket ? $"{MaxBucket}+" : i.ToString())</span>
+                </div>
+            }
+        </div>
+    </section>
+}
+
+@code {
+    private const int MaxBucket = 7;
+    [Parameter, EditorRequired] public Deck Deck { get; set; } = default!;
+    [Parameter, EditorRequired] public IReadOnlyDictionary<Guid, CardInfo> Cards { get; set; } = new Dictionary<Guid, CardInfo>();
+}

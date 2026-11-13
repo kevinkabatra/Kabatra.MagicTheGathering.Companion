@@ -1,0 +1,153 @@
+@* Sign-in and playgroup controls for shared decks. Shows nothing when cloud sync isn't configured. *@
+@implements IDisposable
+@inject DeckLibrary Library
+@inject IJSRuntime Js
+
+@if (!Library.CloudEnabled)
+{
+    <p class="notice">
+        Decks are saved on this device only. To share them with your playgroup, connect a Supabase project
+        (see the README).
+    </p>
+}
+else if (!Library.Ready)
+{
+    <p class="muted">Checking your sign-in…</p>
+}
+else if (!Library.SignedIn)
+{
+    <section class="panel account">
+        <h2>Sign in to share decks</h2>
+        <p class="muted">We'll email you a sign-in link. No password needed.</p>
+        @if (!_emailSent)
+        {
+            <form class="inline-form" @onsubmit="SendAsync">
+                <input type="email" required placeholder="you@example.com" autocomplete="email" @bind="_email" aria-label="Email" />
+                <button class="primary" type="submit" disabled="@_busy">Email me a link</button>
+            </form>
+        }
+        else
+        {
+            <p>Check <strong>@_email</strong> and tap the link. If the email has a 6-digit code, you can type it here instead
+               (handy if the link opens in a different browser).</p>
+            <form class="inline-form" @onsubmit="VerifyAsync">
+                <input inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="Code" @bind="_code" aria-label="Sign-in code" />
+                <button class="primary" type="submit" disabled="@(_busy || string.IsNullOrWhiteSpace(_code))">Sign in</button>
+                <button type="button" @onclick="() => _emailSent = false">Use another email</button>
+            </form>
+        }
+        <ErrorMessage />
+    </section>
+}
+else if (Library.Groups.Count == 0 || _managing)
+{
+    <section class="panel account">
+        <div class="row spread">
+            <h2>@(Library.Groups.Count == 0 ? "Join your playgroup" : "Playgroups")</h2>
+            @if (Library.Groups.Count > 0) { <button @onclick="() => _managing = false">Done</button> }
+        </div>
+        <p class="muted">Decks are shared with everyone in a playgroup. Signed in as @Library.Email.</p>
+
+        <label class="field">
+            <span>Your name in the group</span>
+            <input @bind="_displayName" placeholder="e.g. Sam" maxlength="60" />
+        </label>
+
+        <form class="inline-form" @onsubmit="JoinAsync">
+            <input @bind="_inviteCode" placeholder="Invite code" maxlength="8" aria-label="Invite code" style="text-transform:uppercase" />
+            <button class="primary" type="submit" disabled="@(_busy || string.IsNullOrWhiteSpace(_inviteCode))">Join</button>
+        </form>
+        <form class="inline-form" @onsubmit="CreateAsync">
+            <input @bind="_groupName" placeholder="New playgroup name" maxlength="80" aria-label="New playgroup name" />
+            <button type="submit" disabled="@(_busy || string.IsNullOrWhiteSpace(_groupName))">Create</button>
+        </form>
+        <ErrorMessage />
+        <button class="link" @onclick="SignOutAsync">Sign out</button>
+    </section>
+}
+else if (Library.CurrentGroup is { } group)
+{
+    <section class="account-bar">
+        <label class="field compact">
+            <span>Playgroup</span>
+            <select value="@group.Id" @onchange="e => Library.SelectGroupAsync(Guid.Parse(e.Value!.ToString()!))">
+                @foreach (var g in Library.Groups)
+                {
+                    <option value="@g.Id">@g.Name</option>
+                }
+            </select>
+        </label>
+        <div class="invite">
+            <span class="muted">Invite code</span>
+            <code>@group.InviteCode</code>
+            <button class="icon" title="Copy invite code" aria-label="Copy invite code" @onclick="() => CopyAsync(group.InviteCode)">⧉</button>
+        </div>
+        <div class="actions">
+            <button @onclick="() => _managing = true">Join / create…</button>
+            @if (Library.IsCreator(group))
+            {
+                <button @onclick="ResetCodeAsync" title="Make a new code; the old one stops working">New code</button>
+            }
+            <button @onclick="LeaveAsync">Leave</button>
+            <button @onclick="SignOutAsync">Sign out</button>
+        </div>
+        @if (_copied) { <span class="muted">Copied!</span> }
+        <ErrorMessage />
+    </section>
+}
+
+@code {
+    private string _email = "";
+    private string _code = "";
+    private string _displayName = "";
+    private string _inviteCode = "";
+    private string _groupName = "";
+    private bool _emailSent;
+    private bool _busy;
+    private bool _managing;
+    private bool _copied;
+
+    protected override void OnInitialized()
+    {
+        Library.Changed += OnChanged;
+        _displayName = Library.DisplayName ?? "";
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Library.Changed -= OnChanged;
+
+    private Task SendAsync() => Busy(async () => { await Library.SendSignInEmailAsync(_email); _emailSent = true; });
+    private Task VerifyAsync() => Busy(() => Library.VerifyCodeAsync(_email, _code));
+    private Task JoinAsync() => Busy(async () => { await Library.JoinGroupAsync(_inviteCode, _displayName); _managing = false; _inviteCode = ""; });
+    private Task CreateAsync() => Busy(async () => { await Library.CreateGroupAsync(_groupName, _displayName); _managing = false; _groupName = ""; });
+    private Task SignOutAsync() => Busy(() => { _managing = false; return Library.SignOutAsync(); });
+    private Task ResetCodeAsync() => Busy(async () =>
+    {
+        if (await Js.InvokeAsync<bool>("confirm", "Make a new invite code? The old code will stop working (people already in the group stay in)."))
+            await Library.ResetInviteCodeAsync();
+    });
+
+    private Task LeaveAsync() => Busy(async () =>
+    {
+        if (await Js.InvokeAsync<bool>("confirm", $"Leave {Library.CurrentGroup?.Name}? You'll need the invite code to rejoin."))
+            await Library.LeaveGroupAsync();
+    });
+
+    private async Task CopyAsync(string text)
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            _copied = true;
+        }
+        catch (JSException) { }
+    }
+
+    private async Task Busy(Func<Task> action)
+    {
+        _busy = true;
+        try { await action(); }
+        catch (DeckLibraryException) { /* shown via Library.Error */ }
+        finally { _busy = false; }
+    }
+}

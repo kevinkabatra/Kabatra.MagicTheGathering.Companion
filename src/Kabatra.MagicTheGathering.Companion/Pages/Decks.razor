@@ -1,0 +1,117 @@
+@page "/decks"
+@implements IDisposable
+@inject DeckLibrary Library
+
+<PageTitle>Decks · MTG Companion</PageTitle>
+
+<div class="page">
+    <header class="page-head">
+        <a href="" class="back">← Game</a>
+        <h1>Decks</h1>
+    </header>
+
+    <AccountPanel />
+
+    @if (Library.Store is { } store)
+    {
+        <div class="row spread toolbar">
+            <input type="search" placeholder="Filter by deck, player or format" @bind="_filter" @bind:event="oninput" aria-label="Filter decks" />
+            <div class="actions">
+                <a class="button primary" href="decks/new">+ New deck</a>
+                <a class="button" href="decks/import">Import list</a>
+            </div>
+        </div>
+
+        @if (_loading)
+        {
+            <p class="muted">Loading decks…</p>
+        }
+        else if (_error is not null)
+        {
+            <ErrorMessage Message="@_error" />
+            <button @onclick="LoadAsync">Try again</button>
+        }
+        else if (_decks.Count == 0)
+        {
+            <p class="muted center">No decks in @store.Description yet. Build one, or paste a list from Arena, Moxfield or Archidekt.</p>
+        }
+        else
+        {
+            <ul class="deck-grid">
+                @foreach (var deck in Filtered())
+                {
+                    var format = deck.GetFormat();
+                    <li>
+                        <a class="deck-tile" href="decks/@deck.Id">
+                            <div class="art" style="@(deck.CoverImageUrl is null ? null : $"background-image:url('{deck.CoverImageUrl}')")"></div>
+                            <div class="info">
+                                <strong>@deck.Name</strong>
+                                <span class="muted">@(string.IsNullOrWhiteSpace(deck.OwnerName) ? "" : deck.OwnerName + " · ")@format.Name</span>
+                                <span class="muted small">@(deck.Count(DeckSection.Main) + deck.Count(DeckSection.Commander)) cards@(deck.Commanders.Any() ? " · " + string.Join(" & ", deck.Commanders.Select(c => c.Name.Split(" // ")[0])) : "")</span>
+                            </div>
+                        </a>
+                    </li>
+                }
+            </ul>
+        }
+    }
+</div>
+
+@code {
+    private List<Deck> _decks = [];
+    private string _filter = "";
+    private bool _loading = true;
+    private string? _error;
+    private string? _loadedKey;
+    private string StoreKey => $"{Library.SignedIn}:{Library.CurrentGroup?.Id}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Library.Changed += OnLibraryChanged;
+        await Library.InitializeAsync();
+        await LoadAsync();
+    }
+
+    private void OnLibraryChanged() => InvokeAsync(async () =>
+    {
+        // Reload when the playgroup changes or the user signs in/out.
+        if (StoreKey != _loadedKey) await LoadAsync();
+        StateHasChanged();
+    });
+
+    private async Task LoadAsync()
+    {
+        _loadedKey = StoreKey;
+        var store = Library.Store;
+        if (store is null) { _decks = []; _loading = false; return; }
+        _loading = true;
+        _error = null;
+        try
+        {
+            _decks = (await store.ListAsync()).ToList();
+        }
+        catch (Exception e) when (e is SupabaseException or HttpRequestException)
+        {
+            _error = $"Couldn't load decks: {e.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private IEnumerable<Deck> Filtered()
+    {
+        var words = _filter.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return _decks
+            .Where(d => words.All(w =>
+                d.Name.Contains(w, StringComparison.OrdinalIgnoreCase)
+                || d.OwnerName.Contains(w, StringComparison.OrdinalIgnoreCase)
+                || d.GetFormat().Name.Contains(w, StringComparison.OrdinalIgnoreCase)
+                || d.Commanders.Any(c => c.Name.Contains(w, StringComparison.OrdinalIgnoreCase))))
+            .OrderBy(d => d.OwnerName, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase);
+    }
+
+    public void Dispose() => Library.Changed -= OnLibraryChanged;
+}

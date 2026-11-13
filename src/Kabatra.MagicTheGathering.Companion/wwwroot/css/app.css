@@ -195,6 +195,204 @@ input, select {
 .counter.lethal .value { color: var(--danger); }
 .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; flex: none; }
 
+/* ---------- Deck art on player cards ---------- */
+.player .names { display: grid; min-width: 0; }
+.player .deck-name { color: var(--muted); font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player .deck-art {
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 7rem;
+    border-radius: calc(var(--radius) - 4px) calc(var(--radius) - 4px) 0 0;
+    background: var(--deck-art) center 30% / cover no-repeat;
+    opacity: 0.35;
+    -webkit-mask-image: linear-gradient(to bottom, #000 30%, transparent);
+    mask-image: linear-gradient(to bottom, #000 30%, transparent);
+    pointer-events: none;
+}
+.player > :not(.deck-art) { position: relative; }
+
+/* ---------- Shared bits for the deck pages ---------- */
+a { color: var(--accent); }
+.row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.row.spread { justify-content: space-between; }
+.small { font-size: 0.85rem; }
+.grow { flex: 1 1 10rem; min-width: 0; }
+.grow input, .grow select { width: 100%; min-width: 0; }
+.notice { padding: 0.7rem 0.9rem; border: 1px dashed var(--border); border-radius: var(--radius); color: var(--muted); margin: 0; }
+.error { color: var(--danger); margin: 0.4rem 0 0; }
+.error-text { color: var(--danger); }
+.unsaved { color: var(--accent); }
+code { background: var(--surface-2); padding: 0.1rem 0.35rem; border-radius: 6px; }
+button.link { background: none; border: none; color: var(--muted); text-decoration: underline; padding: 0; justify-self: start; }
+
+a.button {
+    display: inline-block;
+    font: inherit;
+    color: var(--text);
+    text-decoration: none;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.5rem 0.9rem;
+    white-space: nowrap;
+}
+a.button:hover { border-color: var(--accent); }
+a.button.primary { background: var(--accent); color: #1a1205; border-color: var(--accent); font-weight: 600; }
+
+textarea {
+    font: inherit;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.55rem 0.7rem;
+    width: 100%;
+    resize: vertical;
+}
+input[type="search"], input[type="email"] { min-width: 0; }
+
+.page { max-width: 760px; margin: 0 auto; padding: 1rem 16px 3rem; display: grid; gap: 1rem; align-content: start; }
+.page.wide { max-width: 1200px; }
+.page-head { display: grid; gap: 0.2rem; }
+.page-head h1 { margin: 0; overflow-wrap: anywhere; }
+.back { text-decoration: none; font-size: 0.9rem; }
+.setup-like { display: grid; gap: 0.8rem; }
+
+.inline-form { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.inline-form input { flex: 1 1 12rem; }
+
+.panel.account { margin: 0; display: grid; gap: 0.7rem; }
+.panel.account h2 { margin: 0; font-size: 1.15rem; }
+.panel.account p { margin: 0; }
+
+.account-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.6rem 1rem;
+    padding: 0.7rem 0.9rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+.field.compact > span { font-size: 0.8rem; }
+.invite { display: flex; align-items: center; gap: 0.4rem; }
+.invite code { font-size: 1.05rem; letter-spacing: 0.08em; }
+
+.toolbar input[type="search"] { flex: 1 1 14rem; }
+
+/* ---------- Deck list ---------- */
+.deck-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); }
+.deck-tile {
+    display: grid;
+    height: 100%;
+    color: var(--text);
+    text-decoration: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+.deck-tile:hover { border-color: var(--accent); }
+.deck-tile .art { aspect-ratio: 16 / 7; background: var(--surface-2) center 25% / cover no-repeat; }
+.deck-tile .info { display: grid; gap: 0.15rem; padding: 0.6rem 0.75rem 0.75rem; min-width: 0; }
+.deck-tile .info > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- Deck editor ---------- */
+.editor { display: grid; gap: 1.25rem; align-items: start; }
+@media (min-width: 900px) {
+    .editor { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .search-side { position: sticky; top: 0.75rem; max-height: calc(100vh - 1.5rem); overflow-y: auto; }
+}
+.deck-side, .search-side { display: grid; gap: 0.9rem; min-width: 0; }
+.search-side h2 { margin: 0; font-size: 1.1rem; }
+.deck-fields { display: grid; gap: 0.6rem; }
+.deck-fields details textarea { margin-top: 0.4rem; }
+.save-bar { position: sticky; top: 0; z-index: 5; padding: 0.5rem 0; background: var(--bg); }
+
+.legality { padding: 0.6rem 0.8rem; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); }
+.legality.good strong { color: #22c55e; }
+.legality.bad { border-color: color-mix(in srgb, var(--danger) 60%, var(--border)); }
+.legality.bad > strong { color: var(--danger); }
+.legality ul { margin: 0.4rem 0 0; padding-left: 1.2rem; display: grid; gap: 0.2rem; font-size: 0.9rem; }
+
+.deck-section h3, .curve h3 { margin: 0 0 0.3rem; font-size: 0.95rem; }
+.deck-section ul { list-style: none; margin: 0; padding: 0; display: grid; }
+.deck-line {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.15rem 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+.deck-line.unknown .card-name { color: var(--danger); }
+.deck-line .qty { display: flex; align-items: center; gap: 0.1rem; }
+.deck-line .qty span { min-width: 1.6rem; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+.deck-line .qty button { padding: 0.15rem 0.45rem; }
+.card-name {
+    background: none;
+    border: none;
+    padding: 0.2rem 0;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    user-select: text;
+}
+.card-name:hover { color: var(--accent); }
+.deck-line .move { padding: 0.2rem 0.3rem; font-size: 0.8rem; max-width: 6.5rem; }
+
+.mana { display: inline-flex; gap: 1px; align-items: center; white-space: nowrap; }
+.mana img { width: 1rem; height: 1rem; }
+
+.curve .bars { display: grid; grid-template-columns: repeat(8, 1fr); gap: 0.3rem; height: 6rem; align-items: end; }
+.bar-col { display: grid; grid-template-rows: auto 1fr auto; height: 100%; justify-items: center; font-size: 0.75rem; color: var(--muted); }
+.bar-col .bar { align-self: end; width: 100%; min-height: 2px; background: var(--accent); border-radius: 4px 4px 0 0; }
+
+/* ---------- Card search ---------- */
+.card-search { display: grid; gap: 0.6rem; }
+.search-results { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); }
+.search-results li { display: grid; gap: 0.3rem; }
+.card-thumb { padding: 0; border: none; background: none; border-radius: 6px; overflow: hidden; aspect-ratio: 146 / 204; }
+.card-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.card-thumb span { display: grid; place-items: center; height: 100%; padding: 0.4rem; background: var(--surface-2); font-size: 0.8rem; }
+.add-buttons { display: grid; grid-template-columns: 1fr auto; gap: 0.25rem; }
+.add-buttons button { padding: 0.3rem 0.4rem; font-size: 0.85rem; }
+
+/* ---------- Overlays ---------- */
+.overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.7);
+}
+.card-preview { margin: 0; display: grid; gap: 0.5rem; justify-items: center; max-width: min(92vw, 400px); }
+.card-preview img { width: 100%; border-radius: 4.75% / 3.5%; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); }
+.card-preview figcaption { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; justify-content: center; color: #ddd; font-size: 0.85rem; }
+.text-card { background: var(--surface); padding: 1rem; border-radius: var(--radius); }
+.text-card .oracle { white-space: pre-line; }
+.dialog {
+    width: min(600px, 100%);
+    display: grid;
+    gap: 0.6rem;
+    padding: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+.dialog h2 { margin: 0; }
+.dialog p { margin: 0; }
+.dialog textarea { font-family: ui-monospace, Consolas, monospace; font-size: 0.85rem; }
+
+/* ---------- Setup: deck pickers ---------- */
+.player-names .seat { flex: 1; min-width: 0; display: grid; gap: 0.3rem; }
+.player-names .seat select { font-size: 0.9rem; padding: 0.35rem 0.5rem; }
+.setup h1 { margin: 0; }
+
 /* ---------- Blazor template bits ---------- */
 #blazor-error-ui {
     background: lightyellow;

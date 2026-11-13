@@ -1,0 +1,325 @@
+@page "/decks/new"
+@page "/decks/{Id:guid}"
+@implements IDisposable
+@inject DeckLibrary Library
+@inject CardCatalog Catalog
+@inject NavigationManager Nav
+@inject IJSRuntime Js
+
+<PageTitle>@(string.IsNullOrWhiteSpace(_deck?.Name) ? "Deck" : _deck.Name) · MTG Companion</PageTitle>
+
+<div class="page wide">
+    <header class="page-head">
+        <a href="decks" class="back">← Decks</a>
+        <h1>@(Id is null ? "New deck" : string.IsNullOrWhiteSpace(_deck?.Name) ? "Deck" : _deck.Name)</h1>
+    </header>
+
+    @if (Library.Store is null)
+    {
+        <AccountPanel />
+    }
+    else if (_deck is null)
+    {
+        @if (_loadError is not null) { <ErrorMessage Message="@_loadError" /> }
+        else { <p class="muted">Loading deck…</p> }
+    }
+    else
+    {
+        var format = _deck.GetFormat();
+        var errors = _issues.Count(i => i.Severity == IssueSeverity.Error);
+
+        <div class="editor">
+            <section class="deck-side">
+                <div class="deck-fields">
+                    <label class="field">
+                        <span>Deck name</span>
+                        <input @bind="_deck.Name" @bind:after="Touch" placeholder="e.g. Goblin Gang" maxlength="120" />
+                    </label>
+                    <div class="field-row">
+                        <label class="field grow">
+                            <span>Player</span>
+                            <input @bind="_deck.OwnerName" @bind:after="Touch" placeholder="Who plays it" maxlength="60" />
+                        </label>
+                        <label class="field grow">
+                            <span>Format</span>
+                            <select @bind="_deck.Format" @bind:after="FormatChanged">
+                                @foreach (var f in DeckFormat.All) { <option value="@f.Id">@f.Name</option> }
+                            </select>
+                        </label>
+                    </div>
+                    <details>
+                        <summary class="muted">Notes</summary>
+                        <textarea rows="3" @bind="_deck.Notes" @bind:after="Touch" placeholder="Strategy, upgrades, who borrowed it…"></textarea>
+                    </details>
+                </div>
+
+                <div class="row spread save-bar">
+                    <span class="muted small">
+                        @(_deck.Count(DeckSection.Main) + _deck.Count(DeckSection.Commander)) cards
+                        @if (_deck.Count(DeckSection.Sideboard) > 0) { <span> + @_deck.Count(DeckSection.Sideboard) sideboard</span> }
+                        @if (_dirty) { <span class="unsaved"> · unsaved changes</span> }
+                    </span>
+                    <div class="actions">
+                        <button @onclick="() => _showExport = true">Export</button>
+                        @if (Id is not null) { <button @onclick="DeleteAsync">Delete</button> }
+                        <button class="primary" @onclick="SaveAsync" disabled="@(_saving || string.IsNullOrWhiteSpace(_deck.Name))">@(_saving ? "Saving…" : "Save")</button>
+                    </div>
+                </div>
+                <ErrorMessage Message="@_saveError" />
+
+                <div class="legality @(errors > 0 ? "bad" : "good")">
+                    @if (_resolving)
+                    {
+                        <span class="muted">Checking cards with Scryfall…</span>
+                    }
+                    else if (format.ScryfallKey is null)
+                    {
+                        <span class="muted">Casual: no deck-building rules checked.</span>
+                    }
+                    else if (_issues.Count == 0)
+                    {
+                        <strong>✓ Legal in @format.Name</strong>
+                    }
+                    else
+                    {
+                        <strong>@(errors > 0 ? $"✗ Not legal in {format.Name}" : $"✓ Legal in {format.Name}, with notes")</strong>
+                    }
+                    @if (_issues.Count > 0)
+                    {
+                        <ul>
+                            @foreach (var issue in _issues)
+                            {
+                                <li class="@(issue.Severity == IssueSeverity.Error ? "error-text" : "muted")">@issue.Message</li>
+                            }
+                        </ul>
+                    }
+                </div>
+
+                @if (format.HasCommander)
+                {
+                    <DeckSectionList Deck="_deck" Resolving="_resolving" Title="@format.CommanderLabel" Lines="Lines(DeckSection.Commander)" Cards="_cards" Format="format"
+                                     OnChange="OnLineChanged" OnPreview="c => _preview = c" EmptyText="Tap ★ on a search result to set it here." />
+                }
+
+                @foreach (var group in MainGroups())
+                {
+                    <DeckSectionList Deck="_deck" Resolving="_resolving" Title="@group.Key" Lines="group.ToList()" Cards="_cards" Format="format"
+                                     OnChange="OnLineChanged" OnPreview="c => _preview = c" />
+                }
+                @if (!_deck.In(DeckSection.Main).Any())
+                {
+                    <p class="muted">The main deck is empty. Search for cards to add them.</p>
+                }
+
+                @if (format.MaxSideboard > 0 || _deck.In(DeckSection.Sideboard).Any())
+                {
+                    <DeckSectionList Deck="_deck" Resolving="_resolving" Title="Sideboard" Lines="Lines(DeckSection.Sideboard)" Cards="_cards" Format="format"
+                                     OnChange="OnLineChanged" OnPreview="c => _preview = c" EmptyText="No sideboard cards." />
+                }
+
+                <ManaCurve Deck="_deck" Cards="_cards" />
+            </section>
+
+            <section class="search-side">
+                <h2>Add cards</h2>
+                <CardSearch OnAdd="AddCard" HasCommander="format.HasCommander" CommanderLabel="@format.CommanderLabel"
+                            FormatKey="@format.ScryfallKey" FormatName="@format.Name" />
+            </section>
+        </div>
+
+        @if (_showExport)
+        {
+            <div class="overlay" @onclick="() => _showExport = false">
+                <div class="dialog" @onclick:stopPropagation="true" role="dialog" aria-label="Export deck list">
+                    <h2>Export</h2>
+                    <p class="muted small">MTG Arena format. Moxfield, Archidekt and most deck sites import it too.</p>
+                    <textarea readonly rows="16" value="@DeckListText.Write(_deck)"></textarea>
+                    <div class="actions">
+                        <button class="primary" @onclick="CopyExportAsync">@(_copied ? "Copied!" : "Copy")</button>
+                        <button @onclick="() => _showExport = false">Close</button>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <CardPreview Card="_preview" OnClose="() => _preview = null" />
+    }
+</div>
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+
+    private Deck? _deck;
+    private Dictionary<Guid, CardInfo> _cards = [];
+    private IReadOnlyList<DeckIssue> _issues = [];
+    private CardInfo? _preview;
+    private bool _dirty;
+    private bool _saving;
+    private bool _resolving;
+    private bool _showExport;
+    private bool _copied;
+    private string? _loadError;
+    private string? _saveError;
+    private IDisposable? _leaveGuard;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Library.InitializeAsync();
+        var store = Library.Store;
+        if (store is null) return;
+
+        if (Id is null)
+        {
+            _deck = new Deck { OwnerName = Library.DisplayName ?? "" };
+        }
+        else
+        {
+            try
+            {
+                _deck = await store.GetAsync(Id.Value);
+                if (_deck is null) { _loadError = "That deck doesn't exist any more, or isn't in this playgroup."; return; }
+            }
+            catch (Exception e) when (e is SupabaseException or HttpRequestException)
+            {
+                _loadError = $"Couldn't load the deck: {e.Message}";
+                return;
+            }
+        }
+
+        _leaveGuard = Nav.RegisterLocationChangingHandler(async ctx =>
+        {
+            if (_dirty && !await Js.InvokeAsync<bool>("confirm", "Leave without saving your changes?")) ctx.PreventNavigation();
+        });
+
+        await ResolveAsync();
+    }
+
+    private IReadOnlyList<DeckCard> Lines(DeckSection section) => _deck!.In(section).ToList();
+
+    /// <summary>Main-deck cards grouped by type (Creatures, Instants, …) in a familiar order.</summary>
+    private IEnumerable<IGrouping<string, DeckCard>> MainGroups() =>
+        _deck!.In(DeckSection.Main)
+            .OrderBy(l => CardOf(l)?.ManaValue ?? 0).ThenBy(l => l.Name)
+            .GroupBy(l => CardOf(l)?.MainType ?? "Other")
+            .OrderBy(g => g.Key == "Land" ? 99 : CardInfo.TypeOrder.ToList().IndexOf(g.Key) is var i and >= 0 ? i : 98)
+            .Select(g => (IGrouping<string, DeckCard>)new Grouping(Plural(g.Key), g));
+
+    private CardInfo? CardOf(DeckCard line) => line.ScryfallId is { } id && _cards.TryGetValue(id, out var c) ? c : null;
+
+    private static string Plural(string type) => type switch
+    {
+        "Sorcery" => "Sorceries",
+        "Other" => "Other",
+        _ => type + "s",
+    };
+
+    private async Task ResolveAsync()
+    {
+        if (_deck is null) return;
+        _resolving = true;
+        StateHasChanged();
+        try
+        {
+            var result = await Catalog.ResolveAsync(_deck);
+            foreach (var (id, card) in result.Cards) _cards[id] = card;
+        }
+        catch (Exception e) when (e is ScryfallException or HttpRequestException)
+        {
+            _saveError = "Couldn't reach Scryfall to check the cards. Legality may be incomplete.";
+        }
+        finally
+        {
+            _resolving = false;
+            Validate();
+        }
+    }
+
+    private void Validate() => _issues = _deck is null ? [] : DeckValidator.Validate(_deck, _cards);
+
+    private void Touch() { _dirty = true; Validate(); }
+
+    private void FormatChanged()
+    {
+        // Moving from a 60-card format to Commander and back shouldn't lose the sideboard, so nothing is moved here;
+        // the legality panel explains what doesn't fit.
+        Touch();
+    }
+
+    private void AddCard((CardInfo Card, DeckSection Section) add)
+    {
+        var (card, section) = add;
+        _cards[card.Id] = card;
+        _deck!.Add(card, section);
+        Touch();
+    }
+
+    private void OnLineChanged() => Touch();
+
+    private async Task SaveAsync()
+    {
+        if (_deck is null || Library.Store is not { } store) return;
+        _saving = true;
+        _saveError = null;
+        try
+        {
+            _deck.CoverImageUrl = PickCover();
+            var saved = await store.SaveAsync(_deck);
+            _dirty = false;
+            if (Id is null) Nav.NavigateTo($"decks/{saved.Id}", replace: true);
+        }
+        catch (Exception e) when (e is SupabaseException or HttpRequestException)
+        {
+            _saveError = $"Couldn't save: {e.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    /// <summary>The commander's art, or else the art of the deck's most-played spell.</summary>
+    private string? PickCover()
+    {
+        var pick = _deck!.Commanders.Select(CardOf).OfType<CardInfo>().FirstOrDefault(c => c.ArtCrop is not null)
+            ?? _deck.In(DeckSection.Main)
+                .OrderByDescending(l => l.Quantity)
+                .Select(CardOf).OfType<CardInfo>()
+                .FirstOrDefault(c => c.ArtCrop is not null && c.MainType != "Land");
+        return pick?.ArtCrop ?? _deck.CoverImageUrl;
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_deck is null || Library.Store is not { } store) return;
+        if (!await Js.InvokeAsync<bool>("confirm", $"Delete \"{_deck.Name}\" for everyone in {store.Description}? This can't be undone.")) return;
+        try
+        {
+            await store.DeleteAsync(_deck.Id);
+            _dirty = false;
+            Nav.NavigateTo("decks");
+        }
+        catch (Exception e) when (e is SupabaseException or HttpRequestException)
+        {
+            _saveError = $"Couldn't delete: {e.Message}";
+        }
+    }
+
+    private async Task CopyExportAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", DeckListText.Write(_deck!));
+            _copied = true;
+        }
+        catch (JSException) { }
+    }
+
+    public void Dispose() => _leaveGuard?.Dispose();
+
+    private sealed class Grouping(string key, IEnumerable<DeckCard> items) : IGrouping<string, DeckCard>
+    {
+        public string Key { get; } = key;
+        public IEnumerator<DeckCard> GetEnumerator() => items.GetEnumerator();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+}

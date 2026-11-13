@@ -1,0 +1,62 @@
+@* One section of a deck (e.g. "Creatures" or "Sideboard") with quantity controls. *@
+
+<section class="deck-section">
+    <h3>@Title <span class="muted">(@Lines.Sum(l => l.Quantity))</span></h3>
+    @if (Lines.Count == 0 && EmptyText is not null)
+    {
+        <p class="muted small">@EmptyText</p>
+    }
+    <ul>
+        @foreach (var line in Lines)
+        {
+            var card = line.ScryfallId is { } id && Cards.TryGetValue(id, out var c) ? c : null;
+            <li class="deck-line @(card is null && !Resolving ? "unknown" : null)">
+                <div class="qty">
+                    <button class="icon" @onclick="() => Change(line, line.Quantity - 1)" aria-label="One fewer @line.Name">−</button>
+                    <span>@line.Quantity</span>
+                    <button class="icon" @onclick="() => Change(line, line.Quantity + 1)" aria-label="One more @line.Name"
+                            disabled="@(Format.IsSingleton && card is { CopyLimitOverride: 0 } && line.Section != DeckSection.Sideboard)">+</button>
+                </div>
+                <button class="card-name" @onclick="() => { if (card is not null) OnPreview.InvokeAsync(card); }">@line.Name</button>
+                <ManaCost Cost="@card?.ManaCost" />
+                <select class="move" value="@line.Section" @onchange="e => Move(line, e)" aria-label="Move @line.Name">
+                    <option value="@DeckSection.Main">Main</option>
+                    @if (Format.HasCommander) { <option value="@DeckSection.Commander">@(Format.IsOathbreaker ? "Oathbreaker" : "Commander")</option> }
+                    <option value="@DeckSection.Sideboard">Sideboard</option>
+                    <option value="remove">Remove</option>
+                </select>
+            </li>
+        }
+    </ul>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter, EditorRequired] public IReadOnlyList<DeckCard> Lines { get; set; } = [];
+    [Parameter, EditorRequired] public IReadOnlyDictionary<Guid, CardInfo> Cards { get; set; } = new Dictionary<Guid, CardInfo>();
+    [Parameter, EditorRequired] public DeckFormat Format { get; set; } = DeckFormat.Casual;
+    [Parameter] public string? EmptyText { get; set; }
+
+    /// <summary>True while card data is still loading, so unmatched cards aren't flagged yet.</summary>
+    [Parameter] public bool Resolving { get; set; }
+
+    /// <summary>The deck that owns the lines.</summary>
+    [Parameter, EditorRequired] public Deck Deck { get; set; } = default!;
+
+    [Parameter] public EventCallback OnChange { get; set; }
+    [Parameter] public EventCallback<CardInfo> OnPreview { get; set; }
+
+    private Task Change(DeckCard line, int quantity)
+    {
+        Deck.SetQuantity(line, quantity);
+        return OnChange.InvokeAsync();
+    }
+
+    private Task Move(DeckCard line, ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString();
+        if (value == "remove") Deck.SetQuantity(line, 0);
+        else if (Enum.TryParse<DeckSection>(value, out var section)) Deck.Move(line, section);
+        return OnChange.InvokeAsync();
+    }
+}

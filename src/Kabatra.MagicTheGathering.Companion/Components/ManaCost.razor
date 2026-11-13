@@ -1,0 +1,42 @@
+@* Shows a mana cost like "{2}{W/U}" with Scryfall's mana symbols. *@
+@if (!string.IsNullOrEmpty(Cost))
+{
+    <span class="mana" title="@Cost">
+        @foreach (var symbol in Symbols(Cost))
+        {
+            if (symbol == "//")
+            {
+                <span class="muted"> // </span>
+            }
+            else
+            {
+                <img src="https://svgs.scryfall.io/card-symbols/@(symbol.Replace("/", "")).svg" alt="{@symbol}" loading="lazy" />
+            }
+        }
+    </span>
+}
+
+@code {
+    [Parameter] public string? Cost { get; set; }
+
+    private static IEnumerable<string> Symbols(string cost)
+    {
+        var i = 0;
+        while (i < cost.Length)
+        {
+            if (cost[i] == '{')
+            {
+                var end = cost.IndexOf('}', i);
+                if (end < 0) yield break;
+                yield return cost[(i + 1)..end].ToUpperInvariant();
+                i = end + 1;
+            }
+            else if (cost.AsSpan(i).StartsWith("//"))
+            {
+                yield return "//";
+                i += 2;
+            }
+            else i++;
+        }
+    }
+}

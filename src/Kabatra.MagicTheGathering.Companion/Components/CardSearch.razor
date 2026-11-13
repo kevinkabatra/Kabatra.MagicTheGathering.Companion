@@ -1,0 +1,150 @@
+@* Search Scryfall and add cards to a deck. Typing suggests names; Enter runs a full Scryfall search. *@
+@implements IDisposable
+@inject CardCatalog Catalog
+
+<section class="card-search">
+    <form class="inline-form" @onsubmit="() => SearchAsync(_query)">
+        <input type="search" list="card-name-suggestions" placeholder="Card name, or Scryfall search like t:dragon c:r"
+               value="@_query" @oninput="OnInput" aria-label="Search cards" autocomplete="off" />
+        <button class="primary" type="submit" disabled="@string.IsNullOrWhiteSpace(_query)">Search</button>
+    </form>
+    <datalist id="card-name-suggestions">
+        @foreach (var name in _suggestions) { <option value="@name"></option> }
+    </datalist>
+
+    @if (FormatKey is not null)
+    {
+        <label class="check small">
+            <input type="checkbox" @bind="_onlyLegal" />
+            <span>Only cards legal in @FormatName</span>
+        </label>
+    }
+
+    @if (_searching)
+    {
+        <p class="muted">Searching Scryfall…</p>
+    }
+    else if (_error is not null)
+    {
+        <ErrorMessage Message="@_error" />
+    }
+    else if (_results is { } found)
+    {
+        <p class="muted small">
+            @if (found.TotalCards == 0) { <span>No cards found.</span> }
+            else { <span>@found.TotalCards card@(found.TotalCards == 1 ? "" : "s")@(found.HasMore ? $", showing {found.Cards.Count}" : "")</span> }
+        </p>
+        <ul class="search-results">
+            @foreach (var card in found.Cards)
+            {
+                <li>
+                    <button class="card-thumb" title="@card.Name" @onclick="() => _preview = card">
+                        @if (card.ImageSmall is not null) { <img src="@card.ImageSmall" alt="@card.Name" loading="lazy" /> }
+                        else { <span>@card.Name</span> }
+                    </button>
+                    <div class="add-buttons">
+                        <button @onclick="() => Add(card, DeckSection.Main)" title="Add to main deck">+ Main</button>
+                        @if (HasCommander)
+                        {
+                            <button @onclick="() => Add(card, DeckSection.Commander)" title="Add as @CommanderLabel">★</button>
+                        }
+                        else
+                        {
+                            <button @onclick="() => Add(card, DeckSection.Sideboard)" title="Add to sideboard">+ SB</button>
+                        }
+                    </div>
+                </li>
+            }
+        </ul>
+        @if (found.HasMore)
+        {
+            <button @onclick="NextPageAsync">More results</button>
+        }
+    }
+</section>
+
+<CardPreview Card="_preview" OnClose="() => _preview = null" />
+
+@code {
+    [Parameter, EditorRequired] public EventCallback<(CardInfo Card, DeckSection Section)> OnAdd { get; set; }
+    [Parameter] public bool HasCommander { get; set; }
+    [Parameter] public string CommanderLabel { get; set; } = "commander";
+
+    /// <summary>Scryfall format key, used to filter to legal cards.</summary>
+    [Parameter] public string? FormatKey { get; set; }
+    [Parameter] public string? FormatName { get; set; }
+
+    private string _query = "";
+    private string _lastQuery = "";
+    private int _page = 1;
+    private bool _onlyLegal = true;
+    private IReadOnlyList<string> _suggestions = [];
+    private CardSearchPage? _results;
+    private CardInfo? _preview;
+    private bool _searching;
+    private string? _error;
+    private CancellationTokenSource? _typing;
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        _query = e.Value?.ToString() ?? "";
+
+        // Picking a suggestion from the list fills in an exact name: search for it right away.
+        if (_suggestions.Contains(_query, StringComparer.OrdinalIgnoreCase))
+        {
+            await SearchAsync($"!\"{_query}\"");
+            return;
+        }
+
+        _typing?.Cancel();
+        _typing = new CancellationTokenSource();
+        var token = _typing.Token;
+        try
+        {
+            await Task.Delay(250, token); // wait for a pause in typing
+            _suggestions = await Catalog.AutocompleteAsync(_query, token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) when (ex is ScryfallException or HttpRequestException) { _suggestions = []; }
+    }
+
+    private Task SearchAsync(string query)
+    {
+        _lastQuery = query;
+        _page = 1;
+        return RunSearchAsync(append: false);
+    }
+
+    private Task NextPageAsync()
+    {
+        _page++;
+        return RunSearchAsync(append: true);
+    }
+
+    private async Task RunSearchAsync(bool append)
+    {
+        if (string.IsNullOrWhiteSpace(_lastQuery)) return;
+        var query = _onlyLegal && FormatKey is not null ? $"({_lastQuery}) legal:{FormatKey}" : _lastQuery;
+        _searching = !append;
+        _error = null;
+        try
+        {
+            var page = await Catalog.SearchAsync(query, _page);
+            _results = append && _results is not null
+                ? page with { Cards = [.. _results.Cards, .. page.Cards] }
+                : page;
+        }
+        catch (Exception ex) when (ex is ScryfallException or HttpRequestException)
+        {
+            _error = ex is ScryfallException ? ex.Message : "Couldn't reach Scryfall. Check your connection.";
+        }
+        finally
+        {
+            _searching = false;
+        }
+    }
+
+    private Task Add(CardInfo card, DeckSection section) => OnAdd.InvokeAsync((card, section));
+
+    public void Dispose() => _typing?.Cancel();
+}
