@@ -320,7 +320,7 @@ input[type="search"], input[type="email"] { min-width: 0; }
 .deck-section ul { list-style: none; margin: 0; padding: 0; display: grid; }
 .deck-line {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto auto;
     align-items: center;
     gap: 0.4rem;
     padding: 0.15rem 0;
@@ -341,7 +341,18 @@ input[type="search"], input[type="email"] { min-width: 0; }
     user-select: text;
 }
 .card-name:hover { color: var(--accent); }
+.deck-line .price { font-size: 0.8rem; font-variant-numeric: tabular-nums; text-align: right; min-width: 3.6rem; }
+.section-value { float: right; font-weight: 400; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.deck-value { font-variant-numeric: tabular-nums; }
 .deck-line .move { padding: 0.2rem 0.3rem; font-size: 0.8rem; max-width: 6.5rem; }
+@media (max-width: 639px) {
+    /* Phones: give the card name more room now that each line also shows a price. */
+    .deck-line { gap: 0.3rem; }
+    .deck-line .qty button { padding: 0.15rem 0.35rem; }
+    .deck-line .qty span { min-width: 1.3rem; }
+    .deck-line .price { min-width: 0; font-size: 0.75rem; }
+    .deck-line .move { max-width: 4.6rem; }
+}
 
 .mana { display: inline-flex; gap: 1px; align-items: center; white-space: nowrap; }
 .mana img { width: 1rem; height: 1rem; }
@@ -387,6 +398,51 @@ input[type="search"], input[type="email"] { min-width: 0; }
 .dialog h2 { margin: 0; }
 .dialog p { margin: 0; }
 .dialog textarea { font-family: ui-monospace, Consolas, monospace; font-size: 0.85rem; }
+
+/* ---------- Card scanner ---------- */
+.scanner-overlay { align-items: start; overflow-y: auto; }
+.dialog.scanner { width: min(480px, 100%); }
+.scanner-view {
+    position: relative;
+    aspect-ratio: 3 / 4;
+    max-height: 62vh;
+    width: 100%;
+    margin: 0 auto;
+    overflow: hidden;
+    border-radius: 10px;
+    background: #000;
+}
+.scanner-view video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scanner-guide {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    height: 88%;
+    aspect-ratio: 63 / 88;
+    transform: translate(-50%, -50%);
+    border: 2px solid var(--accent);
+    border-radius: 4.75% / 3.5%;
+    box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+}
+.scanner-guide span { position: absolute; border: 1px dashed rgba(255, 255, 255, 0.7); border-radius: 4px; }
+.scanner-guide .title-zone { left: 6.5%; top: 4.5%; width: 68%; height: 8%; }
+.scanner-guide .bottom-zone { left: 2.5%; top: 88.5%; width: 46%; height: 8.5%; }
+label.button {
+    display: inline-block;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.5rem 0.9rem;
+    cursor: pointer;
+}
+label.button:hover { border-color: var(--accent); }
+label.button.disabled { opacity: 0.5; pointer-events: none; }
+.file-button input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.scan-result { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 0.75rem; align-items: start; }
+.scan-result img { width: 100%; border-radius: 4.75% / 3.5%; }
+.scan-result-info { display: grid; gap: 0.35rem; min-width: 0; }
 
 /* ---------- Setup: deck pickers ---------- */
 .player-names .seat { flex: 1; min-width: 0; display: grid; gap: 0.3rem; }

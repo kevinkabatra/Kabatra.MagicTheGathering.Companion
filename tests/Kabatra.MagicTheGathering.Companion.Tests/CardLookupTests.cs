@@ -18,7 +18,8 @@ public class CardLookupTests
           "color_identity": ["R"], "keywords": [],
           "legalities": { "standard": "not_legal", "modern": "legal", "commander": "legal" },
           "set": "2x2", "set_name": "Double Masters 2022", "collector_number": "117", "rarity": "uncommon",
-          "image_uris": { "small": "https://img/s.jpg", "normal": "https://img/n.jpg", "art_crop": "https://img/a.jpg" }
+          "image_uris": { "small": "https://img/s.jpg", "normal": "https://img/n.jpg", "art_crop": "https://img/a.jpg" },
+          "prices": { "usd": "1.49", "usd_foil": "5.25", "usd_etched": null, "eur": "1.10", "eur_foil": null, "tix": "0.02" }
         }
         """;
 
@@ -151,6 +152,66 @@ public class CardLookupTests
         clock.Now += CardCatalog.CacheLifetime + TimeSpan.FromMinutes(1);
         await new CardCatalog(client, store, clock).GetAsync(id);
         Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task Client_ReadsPrices()
+    {
+        var (client, _) = NewClient((_, _) => FakeHandler.Json(BoltJson));
+        var bolt = await client.GetByIdAsync(Guid.Parse(BoltId));
+
+        Assert.Equal(1.49m, bolt!.Prices!.Usd);
+        Assert.Equal(5.25m, bolt.Prices.UsdFoil);
+        Assert.Null(bolt.Prices.UsdEtched);
+        Assert.Equal(0.02m, bolt.Prices.Tix);
+        Assert.Equal(1.49m, bolt.UsdPrice);
+    }
+
+    [Fact]
+    public async Task Client_CardWithoutPrices_HasNoUsdPrice()
+    {
+        var (client, _) = NewClient((_, _) => FakeHandler.Json(DelverJson));
+        var delver = await client.GetByIdAsync(Guid.Parse(DelverId));
+
+        Assert.NotNull(delver!.Prices); // fetched, just unpriced
+        Assert.Null(delver.UsdPrice);
+    }
+
+    [Fact]
+    public async Task Catalog_RefetchesCachedCardsSavedWithoutPrices()
+    {
+        var store = new MemoryKeyValueStore();
+        var (client, handler) = NewClient((_, _) => FakeHandler.Json(BoltJson));
+        var id = Guid.Parse(BoltId);
+
+        // What an older version of the app cached: no Prices.
+        var old = new { Card = new CardInfo { Id = id, Name = "Lightning Bolt" }, FetchedAt = DateTimeOffset.UtcNow };
+        await store.SetAsync("mtg-companion.card-cache", System.Text.Json.JsonSerializer.Serialize(new[] { old }));
+
+        var bolt = await new CardCatalog(client, store).GetAsync(id);
+        Assert.Single(handler.Requests);
+        Assert.Equal(1.49m, bolt!.UsdPrice);
+    }
+
+    [Fact]
+    public void DeckValue_SumsQuantityTimesPriceAndCountsUnpriced()
+    {
+        var bolt = TestCards.Bolt with { Prices = new CardPrices { Usd = 1.50m } };
+        var foilOnly = TestCards.Krenko with { Prices = new CardPrices { UsdFoil = 10m } };
+        var unpriced = TestCards.Mountain with { Prices = new CardPrices() };
+        var cards = new[] { bolt, foilOnly, unpriced }.ToDictionary(c => c.Id);
+        var lines = new[]
+        {
+            new DeckCard { Name = bolt.Name, Quantity = 4, ScryfallId = bolt.Id },
+            new DeckCard { Name = foilOnly.Name, Quantity = 1, ScryfallId = foilOnly.Id },
+            new DeckCard { Name = unpriced.Name, Quantity = 20, ScryfallId = unpriced.Id },
+            new DeckCard { Name = "Not looked up yet", Quantity = 2 },
+        };
+
+        var value = DeckValue.Of(lines, cards);
+        Assert.Equal(16m, value.Usd);
+        Assert.Equal(22, value.UnpricedCards);
+        Assert.Equal("$1,234.50", DeckValue.FormatUsd(1234.5m));
     }
 
     [Fact]

@@ -1,7 +1,11 @@
 @* One section of a deck (e.g. "Creatures" or "Sideboard") with quantity controls. *@
 
 <section class="deck-section">
-    <h3>@Title <span class="muted">(@Lines.Sum(l => l.Quantity))</span></h3>
+    @{ var value = DeckValue.Of(Lines, Cards); }
+    <h3>
+        @Title <span class="muted">(@Lines.Sum(l => l.Quantity))</span>
+        @if (value.Usd > 0) { <span class="section-value muted">@DeckValue.FormatUsd(value.Usd)</span> }
+    </h3>
     @if (Lines.Count == 0 && EmptyText is not null)
     {
         <p class="muted small">@EmptyText</p>
@@ -19,6 +23,8 @@
                 </div>
                 <button class="card-name" @onclick="() => { if (card is not null) OnPreview.InvokeAsync(card); }">@line.Name</button>
                 <ManaCost Cost="@card?.ManaCost" />
+                @{ var price = DeckValue.LinePrice(line, Cards); }
+                <span class="price muted" title="@PriceTitle(line, card)">@(price is { } p ? DeckValue.FormatUsd(p) : "—")</span>
                 <select class="move" value="@line.Section" @onchange="e => Move(line, e)" aria-label="Move @line.Name">
                     <option value="@DeckSection.Main">Main</option>
                     @if (Format.HasCommander) { <option value="@DeckSection.Commander">@(Format.IsOathbreaker ? "Oathbreaker" : "Commander")</option> }
@@ -45,6 +51,11 @@
 
     [Parameter] public EventCallback OnChange { get; set; }
     [Parameter] public EventCallback<CardInfo> OnPreview { get; set; }
+
+    private static string PriceTitle(DeckCard line, CardInfo? card) =>
+        card?.UsdPrice is not { } each ? "No price on Scryfall"
+        : line.Quantity > 1 ? $"{line.Quantity} × {DeckValue.FormatUsd(each)} (Scryfall, {card.SetCode.ToUpperInvariant()})"
+        : $"Scryfall price for the {card.SetCode.ToUpperInvariant()} printing";
 
     private Task Change(DeckCard line, int quantity)
     {
