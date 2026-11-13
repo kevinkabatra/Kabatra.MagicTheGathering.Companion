@@ -31,6 +31,8 @@ jobs:
         run: |
           # The site is served from /<repo-name>/, not the domain root.
           sed -i 's|<base href="/" />|<base href="/${{ github.event.repository.name }}/" />|' index.html
+          # Pages lets browsers cache files for 10 minutes; a version per deploy makes them fetch the new stylesheet.
+          sed -i 's|href="css/app.css"|href="css/app.css?v=${{ github.sha }}"|' index.html
           # Serve the app for any deep link, and stop Jekyll from hiding the _framework folder.
           cp index.html 404.html
           touch .nojekyll

@@ -402,6 +402,7 @@ input[type="search"], input[type="email"] { min-width: 0; }
 /* ---------- Card scanner ---------- */
 .scanner-overlay { align-items: start; overflow-y: auto; }
 .dialog.scanner { width: min(480px, 100%); }
+.dialog.scanner > * { min-width: 0; }
 .scanner-view {
     position: relative;
     aspect-ratio: 3 / 4;
