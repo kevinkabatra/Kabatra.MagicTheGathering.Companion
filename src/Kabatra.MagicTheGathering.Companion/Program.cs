@@ -5,6 +5,7 @@ using Kabatra.MagicTheGathering.Companion.Core;
 using Kabatra.MagicTheGathering.Companion.Core.Cards;
 using Kabatra.MagicTheGathering.Companion.Core.Cloud;
 using Kabatra.MagicTheGathering.Companion.Core.Decks;
+using Kabatra.MagicTheGathering.Companion.Core.History;
 using Kabatra.MagicTheGathering.Companion.Services;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
@@ -32,5 +33,7 @@ builder.Services.AddSingleton(supabase);
 builder.Services.AddScoped(sp => new SupabaseClient(new HttpClient(), supabase, sp.GetRequiredService<IKeyValueStore>()));
 builder.Services.AddScoped<PlaygroupService>();
 builder.Services.AddScoped<DeckLibrary>();
+builder.Services.AddScoped(sp => new GameRecorder(sp.GetRequiredService<IKeyValueStore>()));
+builder.Services.AddScoped(sp => new PlayHistory(sp.GetRequiredService<DeckLibrary>(), sp.GetRequiredService<GameRecorder>()));
 
 await builder.Build().RunAsync();

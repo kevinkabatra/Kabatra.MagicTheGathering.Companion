@@ -43,14 +43,21 @@
                         else { <span>@card.Name</span> }
                     </button>
                     <div class="add-buttons">
-                        <button @onclick="() => Add(card, DeckSection.Main)" title="Add to main deck">+ Main</button>
-                        @if (HasCommander)
+                        @if (CollectionMode)
                         {
-                            <button @onclick="() => Add(card, DeckSection.Commander)" title="Add as @CommanderLabel">★</button>
+                            <button @onclick="() => Add(card, DeckSection.Main)" title="Add to collection">+ Add</button>
                         }
                         else
                         {
-                            <button @onclick="() => Add(card, DeckSection.Sideboard)" title="Add to sideboard">+ SB</button>
+                            <button @onclick="() => Add(card, DeckSection.Main)" title="Add to main deck">+ Main</button>
+                            @if (HasCommander)
+                            {
+                                <button @onclick="() => Add(card, DeckSection.Commander)" title="Add as @CommanderLabel">★</button>
+                            }
+                            else
+                            {
+                                <button @onclick="() => Add(card, DeckSection.Sideboard)" title="Add to sideboard">+ SB</button>
+                            }
                         }
                     </div>
                 </li>
@@ -69,6 +76,9 @@
     [Parameter, EditorRequired] public EventCallback<(CardInfo Card, DeckSection Section)> OnAdd { get; set; }
     [Parameter] public bool HasCommander { get; set; }
     [Parameter] public string CommanderLabel { get; set; } = "commander";
+
+    /// <summary>Adding to a collection rather than a deck: one "+ Add" button instead of deck sections.</summary>
+    [Parameter] public bool CollectionMode { get; set; }
 
     /// <summary>Scryfall format key, used to filter to legal cards.</summary>
     [Parameter] public string? FormatKey { get; set; }

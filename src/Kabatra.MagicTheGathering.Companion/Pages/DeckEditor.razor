@@ -37,8 +37,18 @@
                     </label>
                     <div class="field-row">
                         <label class="field grow">
-                            <span>Player</span>
-                            <input @bind="_deck.OwnerName" @bind:after="Touch" placeholder="Who plays it" maxlength="60" />
+                            <span>Owner <span class="small">(anyone can play it)</span></span>
+                            @if (_profiles.Count > 0)
+                            {
+                                <select value="@(_deck.OwnerProfileId?.ToString() ?? "")" @onchange="PickOwner" aria-label="Owner">
+                                    @foreach (var profile in _profiles) { <option value="@profile.Id">@profile.Name</option> }
+                                    <option value="">Someone without a profile…</option>
+                                </select>
+                            }
+                            @if (_deck.OwnerProfileId is null)
+                            {
+                                <input @bind="_deck.OwnerName" @bind:after="Touch" placeholder="Who owns it" maxlength="60" aria-label="Owner name" />
+                            }
                         </label>
                         <label class="field grow">
                             <span>Format</span>
@@ -162,7 +172,11 @@
 @code {
     [Parameter] public Guid? Id { get; set; }
 
+    /// <summary>For a new deck: the profile that owns it, e.g. when started from a player's page.</summary>
+    [SupplyParameterFromQuery] public Guid? Owner { get; set; }
+
     private Deck? _deck;
+    private List<PlayerProfile> _profiles = [];
     private Dictionary<Guid, CardInfo> _cards = [];
     private IReadOnlyList<DeckIssue> _issues = [];
     private CardInfo? _preview;
@@ -182,9 +196,23 @@
         var store = Library.Store;
         if (store is null) return;
 
+        var profilesLoaded = false;
+        try
+        {
+            if (Library.Profiles is { } profiles)
+            {
+                _profiles = (await profiles.ListAsync()).ToList();
+                profilesLoaded = true;
+            }
+        }
+        catch (Exception e) when (e is SupabaseException or HttpRequestException) { } // owner falls back to free text
+
         if (Id is null)
         {
-            _deck = new Deck { OwnerName = Library.DisplayName ?? "" };
+            // The owner is the profile it was started from, else the profile matching your name, else free text.
+            var owner = _profiles.FirstOrDefault(p => p.Id == Owner)
+                ?? _profiles.FirstOrDefault(p => string.Equals(p.Name, Library.DisplayName, StringComparison.CurrentCultureIgnoreCase));
+            _deck = new Deck { OwnerName = owner?.Name ?? Library.DisplayName ?? "", OwnerProfileId = owner?.Id };
         }
         else
         {
@@ -198,6 +226,13 @@
                 _loadError = $"Couldn't load the deck: {e.Message}";
                 return;
             }
+        }
+
+        if (profilesLoaded && _deck.OwnerProfileId is { } ownerId)
+        {
+            // Show the owner's current name; a deleted owner's deck keeps the name as free text.
+            if (_profiles.FirstOrDefault(p => p.Id == ownerId) is { } owner) _deck.OwnerName = owner.Name;
+            else _deck.OwnerProfileId = null;
         }
 
         _leaveGuard = Nav.RegisterLocationChangingHandler(async ctx =>
@@ -276,6 +311,15 @@
     }
 
     private void OnLineChanged() => Touch();
+
+    private void PickOwner(ChangeEventArgs e)
+    {
+        var profile = _profiles.FirstOrDefault(p => p.Id.ToString() == e.Value?.ToString());
+        if (profile is null && _deck!.OwnerProfileId is not null) _deck.OwnerName = ""; // typing a name next
+        _deck!.OwnerProfileId = profile?.Id;
+        if (profile is not null) _deck.OwnerName = profile.Name;
+        Touch();
+    }
 
     private async Task SaveAsync()
     {

@@ -1,4 +1,6 @@
+@implements IDisposable
 @inject GameSession Session
+@inject PlayHistory History
 @inject IJSRuntime Js
 
 @if (Session.Current is { } game)
@@ -9,6 +11,7 @@
             @if (game.Winner is { } winner)
             {
                 <strong>🏆 @winner.Name wins!</strong>
+                <span class="muted small">Start a new game to save this one to play history.</span>
             }
             else
             {
@@ -45,13 +48,29 @@
     private enum Panel { None, Dice, Log }
     private Panel _panel;
 
+    // Player cards change the game without passing anything down to this component, so the turn,
+    // winner and undo buttons up top need to hear about changes directly.
+    protected override void OnInitialized() => Session.Changed += OnSessionChanged;
+
+    private void OnSessionChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Session.Changed -= OnSessionChanged;
+
     private void Toggle(Panel panel) => _panel = _panel == panel ? Panel.None : panel;
 
     private async Task NewGameAsync()
     {
         // Avoid wiping a game in progress with one stray tap.
-        if (Session.Current is { Winner: null } && !await Js.InvokeAsync<bool>("confirm", "End this game and start a new one?"))
-            return;
+        if (Session.Current is not { } game) return;
+        if (game.Winner is null)
+        {
+            var question = GameRecord.IsWorthRecording(game)
+                ? "End this game and start a new one? It will be saved to play history with no winner."
+                : "End this game and start a new one?";
+            if (!await Js.InvokeAsync<bool>("confirm", question)) return;
+        }
+        // Saved on the device first, so the game isn't lost even if the playgroup can't be reached.
+        await History.RecordAsync(game);
         await Session.EndAsync();
     }
 }

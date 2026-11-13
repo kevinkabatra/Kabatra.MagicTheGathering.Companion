@@ -33,8 +33,14 @@ public sealed class Deck
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "";
 
-    /// <summary>Who plays this deck. Free text, so decks can belong to friends without an account.</summary>
+    /// <summary>
+    /// Who owns this deck, as shown on screen. Kept in step with the owner's profile name when there is one,
+    /// and free text otherwise, for decks made before profiles or owned by someone without one.
+    /// </summary>
     public string OwnerName { get; set; } = "";
+
+    /// <summary>The player profile that owns this deck. Anyone can still play it.</summary>
+    public Guid? OwnerProfileId { get; set; }
 
     /// <summary>A <see cref="DeckFormat.Id"/>.</summary>
     public string Format { get; set; } = DeckFormat.Commander.Id;

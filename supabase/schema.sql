@@ -1,4 +1,4 @@
--- MTG Companion: shared decks for playgroups.
+-- MTG Companion: shared decks, player profiles and play history for playgroups.
 -- Run this once in your Supabase project's SQL Editor (Dashboard -> SQL Editor -> New query).
 -- It is safe to run again: it only creates what is missing and replaces the functions and policies.
 
@@ -36,7 +36,40 @@ create table if not exists public.decks (
     updated_at      timestamptz not null default now()
 );
 
+-- Player profiles: who's in the playgroup, and the cards they own. Not tied to sign-in accounts,
+-- so friends without one can still have a profile.
+create table if not exists public.player_profiles (
+    id           uuid primary key default gen_random_uuid(),
+    playgroup_id uuid not null references public.playgroups (id) on delete cascade,
+    name         text not null check (char_length(name) between 1 and 60),
+    -- Same shape as decks.cards; "section" is ignored.
+    collection   jsonb not null default '[]'::jsonb check (jsonb_typeof(collection) = 'array'),
+    created_by   uuid references auth.users (id) on delete set null default auth.uid(),
+    updated_by   uuid references auth.users (id) on delete set null default auth.uid(),
+    created_at   timestamptz not null default now(),
+    updated_at   timestamptz not null default now()
+);
+
+-- Which profile owns a deck. Anyone can still play it. Added separately so existing projects pick it up.
+alter table public.decks add column if not exists owner_profile_id uuid references public.player_profiles (id) on delete set null;
+
+-- Finished games. The id is the game's own id, so recording a game twice just replaces it.
+create table if not exists public.game_records (
+    id           uuid primary key,
+    playgroup_id uuid not null references public.playgroups (id) on delete cascade,
+    format       text not null,
+    started_at   timestamptz not null,
+    ended_at     timestamptz not null,
+    turns        int not null default 1,
+    -- [{ "profile_id", "name", "deck_id", "deck_name", "won", "eliminated", "final_life" }]
+    players      jsonb not null default '[]'::jsonb check (jsonb_typeof(players) = 'array'),
+    created_by   uuid references auth.users (id) on delete set null default auth.uid(),
+    created_at   timestamptz not null default now()
+);
+
 create index if not exists decks_playgroup_id_idx on public.decks (playgroup_id);
+create index if not exists player_profiles_playgroup_id_idx on public.player_profiles (playgroup_id);
+create index if not exists game_records_playgroup_ended_idx on public.game_records (playgroup_id, ended_at desc);
 create index if not exists playgroup_members_user_id_idx on public.playgroup_members (user_id);
 
 -- Keep updated_at / updated_by current on every edit.
@@ -50,6 +83,10 @@ end $$;
 
 drop trigger if exists decks_touch on public.decks;
 create trigger decks_touch before update on public.decks
+    for each row execute function public.touch_deck();
+
+drop trigger if exists player_profiles_touch on public.player_profiles;
+create trigger player_profiles_touch before update on public.player_profiles
     for each row execute function public.touch_deck();
 
 -- ---------- Membership check ----------
@@ -68,6 +105,8 @@ $$;
 alter table public.playgroups enable row level security;
 alter table public.playgroup_members enable row level security;
 alter table public.decks enable row level security;
+alter table public.player_profiles enable row level security;
+alter table public.game_records enable row level security;
 
 -- Playgroups: members can see their groups; only the creator can rename or delete one.
 -- New groups are made with create_playgroup() so the creator is added as a member at the same time.
@@ -114,6 +153,43 @@ create policy "members edit decks" on public.decks
 
 drop policy if exists "members delete decks" on public.decks;
 create policy "members delete decks" on public.decks
+    for delete to authenticated using (public.is_playgroup_member(playgroup_id));
+
+-- Profiles and play history: same as decks, anyone in the group can read, add, edit, and delete.
+drop policy if exists "members read profiles" on public.player_profiles;
+create policy "members read profiles" on public.player_profiles
+    for select to authenticated using (public.is_playgroup_member(playgroup_id));
+
+drop policy if exists "members add profiles" on public.player_profiles;
+create policy "members add profiles" on public.player_profiles
+    for insert to authenticated with check (public.is_playgroup_member(playgroup_id));
+
+drop policy if exists "members edit profiles" on public.player_profiles;
+create policy "members edit profiles" on public.player_profiles
+    for update to authenticated
+    using (public.is_playgroup_member(playgroup_id))
+    with check (public.is_playgroup_member(playgroup_id));
+
+drop policy if exists "members delete profiles" on public.player_profiles;
+create policy "members delete profiles" on public.player_profiles
+    for delete to authenticated using (public.is_playgroup_member(playgroup_id));
+
+drop policy if exists "members read games" on public.game_records;
+create policy "members read games" on public.game_records
+    for select to authenticated using (public.is_playgroup_member(playgroup_id));
+
+drop policy if exists "members add games" on public.game_records;
+create policy "members add games" on public.game_records
+    for insert to authenticated with check (public.is_playgroup_member(playgroup_id));
+
+drop policy if exists "members edit games" on public.game_records;
+create policy "members edit games" on public.game_records
+    for update to authenticated
+    using (public.is_playgroup_member(playgroup_id))
+    with check (public.is_playgroup_member(playgroup_id));
+
+drop policy if exists "members delete games" on public.game_records;
+create policy "members delete games" on public.game_records
     for delete to authenticated using (public.is_playgroup_member(playgroup_id));
 
 -- ---------- Functions the app calls ----------
@@ -174,5 +250,5 @@ grant execute on function public.reset_invite_code(uuid) to authenticated;
 grant execute on function public.is_playgroup_member(uuid) to authenticated;
 
 -- The anon role gets nothing: every table requires a signed-in member.
-revoke all on public.playgroups, public.playgroup_members, public.decks from anon;
-grant select, insert, update, delete on public.playgroups, public.playgroup_members, public.decks to authenticated;
+revoke all on public.playgroups, public.playgroup_members, public.decks, public.player_profiles, public.game_records from anon;
+grant select, insert, update, delete on public.playgroups, public.playgroup_members, public.decks, public.player_profiles, public.game_records to authenticated;

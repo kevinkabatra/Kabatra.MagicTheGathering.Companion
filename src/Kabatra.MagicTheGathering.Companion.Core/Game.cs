@@ -27,6 +27,7 @@ public sealed class Game
         _clock = clock ?? TimeProvider.System;
     }
 
+    public Guid Id => _state.Id;
     public GameFormat Format => _state.Format;
     public IReadOnlyList<Player> Players => _state.Players;
     public int TurnNumber => _state.TurnNumber;
@@ -65,6 +66,7 @@ public sealed class Game
             Players = list.Select((seat, i) => new Player
             {
                 Name = string.IsNullOrWhiteSpace(seat.Name) ? $"Player {i + 1}" : seat.Name.Trim(),
+                ProfileId = seat.ProfileId,
                 Color = DefaultColors[i % DefaultColors.Count],
                 Life = format.StartingLife,
                 DeckId = seat.DeckId,

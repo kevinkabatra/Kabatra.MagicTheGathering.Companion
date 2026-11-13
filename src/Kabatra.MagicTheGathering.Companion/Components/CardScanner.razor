@@ -55,13 +55,19 @@
                         @match.Card.SetName (@match.Card.SetCode.ToUpperInvariant()) #@match.Card.CollectorNumber
                         @if (!match.ExactPrinting) { <span> · printing not read, using a default</span> }
                     </span>
+                    @if (_printings is null)
+                    {
+                        <button class="link" @onclick="ShowPrintingsAsync" disabled="@_loadingPrintings">
+                            @(_loadingPrintings ? "Loading printings…" : match.ExactPrinting ? "Different printing?" : "Pick your printing")
+                        </button>
+                    }
                     <div class="actions">
-                        <button class="primary" @onclick="() => AddAsync(DeckSection.Main)">+ Main</button>
-                        @if (HasCommander)
+                        <button class="primary" @onclick="() => AddAsync(DeckSection.Main)">@(CollectionMode ? "+ Add to collection" : "+ Main")</button>
+                        @if (!CollectionMode && HasCommander)
                         {
                             <button @onclick="() => AddAsync(DeckSection.Commander)" title="Add as @CommanderLabel">★ @CommanderLabel</button>
                         }
-                        else
+                        else if (!CollectionMode)
                         {
                             <button @onclick="() => AddAsync(DeckSection.Sideboard)">+ Sideboard</button>
                         }
@@ -69,6 +75,36 @@
                     </div>
                 </div>
             </div>
+
+            @if (_printings is { } printings)
+            {
+                var shown = FilteredPrintings(printings);
+                <div class="printing-picker">
+                    <div class="row spread">
+                        <strong class="small">@printings.Count printing@(printings.Count == 1 ? "" : "s"), newest first</strong>
+                        <button class="link" @onclick="() => _printings = null">Hide</button>
+                    </div>
+                    @if (printings.Count > 12)
+                    {
+                        <input type="search" placeholder="Filter by set name, code or number" aria-label="Filter printings"
+                               value="@_printingFilter" @oninput="e => _printingFilter = e.Value?.ToString() ?? string.Empty" />
+                    }
+                    <ul>
+                        @foreach (var printing in shown)
+                        {
+                            <li>
+                                <button class="printing @(printing.Id == match.Card.Id ? "on" : "")" @onclick="() => PickPrinting(printing)"
+                                        title="@printing.SetName #@printing.CollectorNumber" aria-pressed="@(printing.Id == match.Card.Id)">
+                                    @if (printing.ImageSmall is not null) { <img src="@printing.ImageSmall" alt="" loading="lazy" /> }
+                                    <span class="set-name">@printing.SetName</span>
+                                    <span class="muted">@printing.SetCode.ToUpperInvariant() #@printing.CollectorNumber</span>
+                                </button>
+                            </li>
+                        }
+                    </ul>
+                    @if (shown.Count == 0) { <p class="muted small">No printing matches “@_printingFilter”.</p> }
+                </div>
+            }
         }
 
         @if (_showManual)
@@ -92,17 +128,36 @@
     [Parameter] public bool HasCommander { get; set; }
     [Parameter] public string CommanderLabel { get; set; } = "commander";
 
+    /// <summary>Adding to a collection rather than a deck: one add button instead of deck sections.</summary>
+    [Parameter] public bool CollectionMode { get; set; }
+
     private IJSObjectReference? _module;
     private ElementReference _video;
     private ElementReference _guide;
     private ElementReference _file;
     private CardScanMatcher? _matcher;
 
+    private IReadOnlyList<CardInfo>? _printings;
+    private bool _loadingPrintings;
+    private string _printingFilter = "";
+
     private string? _cameraError;
     private bool _busy;
     private string? _status;
     private bool _statusIsError;
-    private ScanMatch? _match;
+    private ScanMatch? _currentMatch;
+
+    /// <summary>The card on offer. A new match closes the printing list, which belonged to the old one.</summary>
+    private ScanMatch? _match
+    {
+        get => _currentMatch;
+        set
+        {
+            _currentMatch = value;
+            _printings = null;
+            _printingFilter = "";
+        }
+    }
     private bool _showManual;
     private string _manualName = "";
     private readonly List<string> _added = [];
@@ -202,6 +257,44 @@
         _added.Add(match.Card.Name);
         _match = null;
         SetStatus($"Added {match.Card.Name}. Ready for the next card.");
+    }
+
+    private async Task ShowPrintingsAsync()
+    {
+        if (_match is not { } match || _loadingPrintings) return;
+        _loadingPrintings = true;
+        try
+        {
+            var printings = await Catalog.GetPrintingsAsync(match.Card);
+            if (_match?.Card.Id != match.Card.Id) return; // a new scan replaced the card while loading
+            // Scryfall only knows paper printings for real cards; keep the one on offer listed even if it's digital-only.
+            _printings = printings.Any(p => p.Id == match.Card.Id) ? printings : [match.Card, .. printings];
+        }
+        catch (Exception e) when (e is ScryfallException or HttpRequestException)
+        {
+            Fail("Couldn't load the other printings. Check your connection.");
+        }
+        finally
+        {
+            _loadingPrintings = false;
+        }
+    }
+
+    private void PickPrinting(CardInfo printing)
+    {
+        _match = new ScanMatch(printing, ExactPrinting: true);
+        SetStatus($"Using {printing.SetName} #{printing.CollectorNumber}.");
+    }
+
+    private List<CardInfo> FilteredPrintings(IReadOnlyList<CardInfo> printings)
+    {
+        var filter = _printingFilter.Trim();
+        if (filter.Length == 0) return printings.ToList();
+        return printings.Where(p =>
+                p.SetName.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                || p.SetCode.Equals(filter, StringComparison.OrdinalIgnoreCase)
+                || p.CollectorNumber.Equals(filter.TrimStart('#'), StringComparison.OrdinalIgnoreCase))
+            .ToList();
     }
 
     private void NotIt()

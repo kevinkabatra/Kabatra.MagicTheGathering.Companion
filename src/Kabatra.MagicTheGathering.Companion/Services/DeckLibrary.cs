@@ -1,13 +1,15 @@
 using Kabatra.MagicTheGathering.Companion.Core;
 using Kabatra.MagicTheGathering.Companion.Core.Cloud;
 using Kabatra.MagicTheGathering.Companion.Core.Decks;
+using Kabatra.MagicTheGathering.Companion.Core.History;
+using Kabatra.MagicTheGathering.Companion.Core.Profiles;
 using Microsoft.AspNetCore.Components;
 
 namespace Kabatra.MagicTheGathering.Companion.Services;
 
 /// <summary>
-/// Decides where decks live and tracks the signed-in user and their playgroups.
-/// With Supabase configured, decks belong to the selected playgroup; without it, they stay on this device.
+/// Decides where decks, player profiles and play history live, and tracks the signed-in user and their playgroups.
+/// With Supabase configured, they belong to the selected playgroup; without it, they stay on this device.
 /// </summary>
 public sealed class DeckLibrary(
     SupabaseClient supabase,
@@ -20,6 +22,8 @@ public sealed class DeckLibrary(
 
     private Task? _init;
     private IDeckStore? _local;
+    private IProfileStore? _localProfiles;
+    private IGameHistoryStore? _localHistory;
 
     public bool CloudEnabled => supabase.IsConfigured;
     public bool SignedIn => supabase.IsSignedIn;
@@ -37,6 +41,29 @@ public sealed class DeckLibrary(
         !CloudEnabled ? _local ??= new LocalDeckStore(storage)
         : CurrentGroup is { } group && SignedIn ? new SupabaseDeckStore(supabase, group)
         : null;
+
+    /// <summary>Where player profiles are read and saved right now; null in the same cases as <see cref="Store"/>.</summary>
+    public IProfileStore? Profiles =>
+        !CloudEnabled ? _localProfiles ??= new LocalProfileStore(storage)
+        : CurrentGroup is { } group && SignedIn ? new SupabaseProfileStore(supabase, group)
+        : null;
+
+    /// <summary>Where finished games are read and saved right now; null in the same cases as <see cref="Store"/>.</summary>
+    public IGameHistoryStore? History =>
+        !CloudEnabled ? _localHistory ??= new LocalGameHistoryStore(storage)
+        : CurrentGroup is { } group && SignedIn ? new SupabaseGameHistoryStore(supabase, group)
+        : null;
+
+    /// <summary>
+    /// The playgroup a game finished now belongs to: null for on-device history. When signed out it's the
+    /// last group used here, or <see cref="Guid.Empty"/> ("whichever group you sign in to") if there's none.
+    /// </summary>
+    public async Task<Guid?> HistoryGroupAsync()
+    {
+        if (!CloudEnabled) return null;
+        if (CurrentGroup is { } group) return group.Id;
+        return Guid.TryParse(await storage.GetAsync(GroupKey), out var saved) ? saved : Guid.Empty;
+    }
 
     public event Action? Changed;
 

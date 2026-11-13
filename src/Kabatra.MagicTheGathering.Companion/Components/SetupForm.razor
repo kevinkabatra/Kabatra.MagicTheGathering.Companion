@@ -4,7 +4,10 @@
 <section class="setup">
     <div class="row spread">
         <h1>New game</h1>
-        <a href="decks" class="button">Decks →</a>
+        <div class="actions">
+            <a href="profiles" class="button">Players →</a>
+            <a href="decks" class="button">Decks →</a>
+        </div>
     </div>
 
     <label class="field">
@@ -49,13 +52,24 @@
             <li>
                 <span class="swatch" style="background:@Game.DefaultColors[index % Game.DefaultColors.Count]"></span>
                 <div class="seat">
+                    @if (_profiles.Count > 0)
+                    {
+                        <select value="@(_profileIds[index]?.ToString() ?? "")" @onchange="e => PickProfile(index, e.Value?.ToString())" aria-label="Player @(index + 1) profile">
+                            <option value="">Guest</option>
+                            @foreach (var profile in _profiles)
+                            {
+                                <option value="@profile.Id" disabled="@(_profileIds.Contains(profile.Id) && _profileIds[index] != profile.Id)">@profile.Name</option>
+                            }
+                        </select>
+                    }
                     <input placeholder="Player @(index + 1)" value="@_names[index]"
                            @onchange="e => _names[index] = e.Value?.ToString() ?? string.Empty" aria-label="Player @(index + 1) name" />
                     @if (_decks.Count > 0)
                     {
                         <select value="@(_deckIds[index]?.ToString() ?? "")" @onchange="e => PickDeck(index, e.Value?.ToString())" aria-label="Player @(index + 1) deck">
                             <option value="">No deck</option>
-                            @foreach (var owner in _decks.GroupBy(d => string.IsNullOrWhiteSpace(d.OwnerName) ? "Unassigned" : d.OwnerName))
+                            @* Any deck can be played by anyone; the seat's own decks are listed first. *@
+                            @foreach (var owner in DecksFor(_profileIds[index]))
                             {
                                 <optgroup label="@owner.Key">
                                     @foreach (var deck in owner)
@@ -98,19 +112,22 @@
     private int _firstPlayer = RandomFirst;
     private List<string> _names = ["", "", "", ""];
     private List<Guid?> _deckIds = [null, null, null, null];
+    private List<Guid?> _profileIds = [null, null, null, null];
     private List<Deck> _decks = [];
+    private List<PlayerProfile> _profiles = [];
     private string? _formatHint;
 
     protected override async Task OnInitializedAsync()
     {
-        var last = await Session.GetLastPlayerNamesAsync();
+        var last = (await Session.GetLastPlayersAsync()).Take(Game.MaxPlayers).ToList();
         if (last.Count >= Game.MinPlayers)
         {
-            _names = last.Take(Game.MaxPlayers).ToList();
+            _names = last.Select(p => p.Name).ToList();
+            _profileIds = last.Select(p => p.ProfileId).ToList();
             _deckIds = _names.Select(_ => (Guid?)null).ToList();
         }
 
-        // Decks are optional: if they can't be loaded (offline, not signed in), setup works as before.
+        // Decks and profiles are optional: if they can't be loaded (offline, not signed in), setup works as before.
         try
         {
             await Library.InitializeAsync();
@@ -119,15 +136,42 @@
                     .OrderBy(d => d.OwnerName, StringComparer.CurrentCultureIgnoreCase)
                     .ThenBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase)
                     .ToList();
+            if (Library.Profiles is { } profiles)
+                _profiles = (await profiles.ListAsync()).ToList();
         }
         catch (Exception e) when (e is SupabaseException or HttpRequestException) { }
+
+        // Forget remembered profiles that were deleted, or that belong to another playgroup.
+        for (var i = 0; i < _profileIds.Count; i++)
+            if (_profileIds[i] is { } id && _profiles.All(p => p.Id != id)) _profileIds[i] = null;
+    }
+
+    /// <summary>Decks grouped by owner, with the seat's own decks first.</summary>
+    private IEnumerable<IGrouping<string, Deck>> DecksFor(Guid? profileId) =>
+        _decks
+            .GroupBy(d => string.IsNullOrWhiteSpace(d.OwnerName) ? "Unassigned" : d.OwnerName)
+            .OrderBy(g => profileId is not null && g.Any(d => d.OwnerProfileId == profileId) ? 0 : 1);
+
+    private void PickProfile(int index, string? value)
+    {
+        var previous = _profiles.FirstOrDefault(p => p.Id == _profileIds[index]);
+        _profileIds[index] = Guid.TryParse(value, out var id) ? id : null;
+        var profile = _profiles.FirstOrDefault(p => p.Id == id);
+        if (profile is not null)
+        {
+            _names[index] = profile.Name;
+        }
+        else if (previous is not null && _names[index] == previous.Name)
+        {
+            _names[index] = ""; // back to a guest: don't keep the profile's name
+        }
     }
 
     private void SetCount(int count)
     {
         count = Math.Clamp(count, Game.MinPlayers, Game.MaxPlayers);
-        while (_names.Count < count) { _names.Add(""); _deckIds.Add(null); }
-        while (_names.Count > count) { _names.RemoveAt(_names.Count - 1); _deckIds.RemoveAt(_deckIds.Count - 1); }
+        while (_names.Count < count) { _names.Add(""); _deckIds.Add(null); _profileIds.Add(null); }
+        while (_names.Count > count) { _names.RemoveAt(_names.Count - 1); _deckIds.RemoveAt(_deckIds.Count - 1); _profileIds.RemoveAt(_profileIds.Count - 1); }
         if (_firstPlayer >= count) _firstPlayer = RandomFirst;
         UpdateFormatFromDecks();
     }
@@ -136,9 +180,14 @@
     {
         _deckIds[index] = Guid.TryParse(value, out var id) ? id : null;
         var deck = _decks.FirstOrDefault(d => d.Id == id);
-        // Fill in the player's name from the deck's owner if the seat is still blank.
-        if (deck is not null && string.IsNullOrWhiteSpace(_names[index]) && !string.IsNullOrWhiteSpace(deck.OwnerName))
-            _names[index] = deck.OwnerName;
+        // A blank seat picking a deck is most likely its owner: fill in their profile (or name).
+        if (deck is not null && string.IsNullOrWhiteSpace(_names[index]) && _profileIds[index] is null)
+        {
+            if (_profiles.FirstOrDefault(p => p.Id == deck.OwnerProfileId) is { } owner && !_profileIds.Contains(owner.Id))
+                PickProfile(index, owner.Id.ToString());
+            else if (!string.IsNullOrWhiteSpace(deck.OwnerName))
+                _names[index] = deck.OwnerName;
+        }
         UpdateFormatFromDecks();
     }
 
@@ -177,7 +226,7 @@
         var seats = _names.Select((name, i) =>
         {
             var deck = _decks.FirstOrDefault(d => d.Id == _deckIds[i]);
-            return new PlayerSeat(name, deck?.Id, deck?.Name, deck?.CoverImageUrl);
+            return new PlayerSeat(name, deck?.Id, deck?.Name, deck?.CoverImageUrl, _profileIds[i]);
         });
 
         var game = Game.Start(format, seats, first);

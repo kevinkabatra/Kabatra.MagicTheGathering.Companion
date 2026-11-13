@@ -65,6 +65,25 @@ public sealed class ScryfallClient
         return new(result.Data.Select(ToCardInfo).ToList(), result.TotalCards, result.HasMore);
     }
 
+    /// <summary>
+    /// Every paper printing of a card (each set, promo and collector number), newest first, at most
+    /// <paramref name="maxCards"/>. Basic lands have hundreds, so the cap keeps this to a few requests.
+    /// </summary>
+    public async Task<IReadOnlyList<CardInfo>> GetPrintingsAsync(CardInfo card, int maxCards = 350, CancellationToken ct = default)
+    {
+        var which = card.OracleId != Guid.Empty ? $"oracleid:{card.OracleId}" : $"!\"{card.Name}\"";
+        var query = Uri.EscapeDataString($"{which} game:paper");
+        var printings = new List<CardInfo>();
+        for (var page = 1; printings.Count < maxCards; page++)
+        {
+            var result = await GetAsync<ListDto>($"cards/search?q={query}&unique=prints&order=released&dir=desc&page={page}", ct);
+            if (result is null) break;
+            printings.AddRange(result.Data.Select(ToCardInfo));
+            if (!result.HasMore) break;
+        }
+        return printings.Take(maxCards).ToList();
+    }
+
     /// <summary>Finds a single card by name, forgiving small typos and front-face-only names.</summary>
     public async Task<CardInfo?> FindByNameAsync(string name, CancellationToken ct = default)
     {

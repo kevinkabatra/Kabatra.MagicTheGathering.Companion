@@ -14,6 +14,9 @@ public sealed class Player
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "";
 
+    /// <summary>The player profile in this seat, or null for a guest.</summary>
+    public Guid? ProfileId { get; set; }
+
     /// <summary>A CSS color used to tell players apart on screen.</summary>
     public string Color { get; set; } = "#6b7280";
 
