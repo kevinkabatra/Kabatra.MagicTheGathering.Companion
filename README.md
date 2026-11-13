@@ -48,9 +48,16 @@ dotnet test
 Without this, everything works but decks, player profiles and play history stay in the browser they were made in.
 
 1. Create a free project at [supabase.com](https://supabase.com).
-2. In the project's **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql). It creates the `playgroups`, `playgroup_members`, `decks`, `player_profiles` and `game_records` tables, row-level security so only members can see a group's data, and the `create_playgroup` / `join_playgroup` functions.
+2. In the project's **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql). It creates:
+   - `player_profiles`: one per signed-in user, plus unclaimed profiles for friends without an account
+   - `playgroups` and `playgroup_profiles`: playgroups, each with one admin, and their profiles (many-to-many)
+   - `decks`: decks owned by a profile, visible in every playgroup that profile is in
+   - `game_records`: each playgroup's play history
+   - `claim_attempts`: rate limiting for profile invite codes
 
-   **Already set up from an older version?** Run `schema.sql` again after updating: it only adds what's missing and keeps your decks. Until you do, decks keep working but the Players page asks for the update.
+   It also sets up row-level security and the functions the app calls (`create_my_profile`, `claim_profile`, `create_playgroup`, `join_playgroup`, and others).
+
+   **Upgrading from the version with email sign-in?** The data model changed. After deploying, run [`supabase/wipe.sql`](supabase/wipe.sql) once, then `schema.sql`. **The wipe permanently deletes every player profile, playgroup, deck and recorded game.** Sign-in accounts are kept.
 3. In **Authentication → URL Configuration**, set **Site URL** to the live site and add these **Redirect URLs**:
    - `https://kevinkabatra.github.io/Kabatra.MagicTheGathering.Companion/**`
    - `http://localhost:5243/**` (for running locally)
