@@ -2,8 +2,13 @@
 @implements IDisposable
 @inject DeckLibrary Library
 @inject IJSRuntime Js
+@inject SupabaseOptions SupabaseSettings
 
-@if (!Library.CloudEnabled)
+@if (SupabaseSettings.Problem is { } problem)
+{
+    <p class="notice error" role="alert">Shared decks are turned off: @problem Decks are being saved on this device for now.</p>
+}
+else if (!Library.CloudEnabled)
 {
     <p class="notice">
         Decks are saved on this device only. To share them with your playgroup, connect a Supabase project

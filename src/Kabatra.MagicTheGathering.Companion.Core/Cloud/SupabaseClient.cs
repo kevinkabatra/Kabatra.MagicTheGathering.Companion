@@ -6,10 +6,50 @@ using System.Text.Json.Serialization;
 
 namespace Kabatra.MagicTheGathering.Companion.Core.Cloud;
 
-/// <summary>Where the Supabase project lives. The anon key is public by design; row-level security protects the data.</summary>
-public sealed record SupabaseOptions(string? Url, string? AnonKey)
+/// <summary>
+/// Where the Supabase project lives and the key the browser uses to reach it.
+/// </summary>
+/// <param name="Url">The project URL, e.g. https://abcd.supabase.co.</param>
+/// <param name="PublishableKey">
+/// A publishable key (<c>sb_publishable_…</c>), or a legacy <c>anon</c> key while those still work.
+/// Both are public by design; row-level security is what protects the data. A secret or service_role
+/// key is refused, because it bypasses row-level security and must never ship to a browser.
+/// </param>
+public sealed record SupabaseOptions(string? Url, string? PublishableKey)
 {
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(Url) && !string.IsNullOrWhiteSpace(AnonKey);
+    /// <summary>Why these settings can't be used, or null if they're fine (or simply not filled in).</summary>
+    public string? Problem
+    {
+        get
+        {
+            var key = PublishableKey?.Trim() ?? "";
+            if (key.StartsWith("sb_secret_", StringComparison.Ordinal) || IsServiceRoleJwt(key))
+                return "The Supabase key in appsettings.json is a secret key. Secret keys bypass row-level security and must never be put in a web app; " +
+                       "rotate it in Supabase (Settings → API Keys) and use the publishable key (sb_publishable_…) instead.";
+            if (!string.IsNullOrWhiteSpace(Url) && !Uri.TryCreate(Url.Trim(), UriKind.Absolute, out _))
+                return "The Supabase URL in appsettings.json isn't a valid address.";
+            return null;
+        }
+    }
+
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(Url) && !string.IsNullOrWhiteSpace(PublishableKey) && Problem is null;
+
+    /// <summary>True for a new-style key; false for a legacy anon JWT.</summary>
+    public bool IsLegacyKey => PublishableKey?.Trim().StartsWith("eyJ", StringComparison.Ordinal) == true;
+
+    private static bool IsServiceRoleJwt(string key)
+    {
+        if (!key.StartsWith("eyJ", StringComparison.Ordinal)) return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(SupabaseClient.DecodeJwtPayload(key));
+            return doc.RootElement.TryGetProperty("role", out var role) && role.GetString() == "service_role";
+        }
+        catch (Exception e) when (e is FormatException or JsonException or SupabaseException)
+        {
+            return false;
+        }
+    }
 }
 
 public sealed record AuthSession(string AccessToken, string RefreshToken, DateTimeOffset ExpiresAt, Guid UserId, string? Email);
@@ -200,9 +240,12 @@ public sealed class SupabaseClient
     {
         if (!IsConfigured) throw new InvalidOperationException("Supabase isn't configured.");
         var request = new HttpRequestMessage(method, url);
-        request.Headers.Add("apikey", _options.AnonKey);
-        var token = auth && Session is not null ? Session.AccessToken : _options.AnonKey;
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        // The project key always goes in "apikey". Publishable keys aren't JWTs, so they must not be sent as
+        // a Bearer token; Authorization carries only the signed-in user's access token. Without it, Supabase
+        // treats the request as the anon role.
+        request.Headers.Add("apikey", _options.PublishableKey!.Trim());
+        if (auth && Session is not null)
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.AccessToken);
         if (body is not null) request.Content = JsonContent.Create(body, body.GetType(), options: Json);
         return request;
     }
@@ -246,14 +289,19 @@ public sealed class SupabaseClient
     /// <summary>Reads the user id and email from an access token's payload (no signature check: the server does that).</summary>
     internal static (Guid UserId, string? Email) ReadJwtUser(string jwt)
     {
+        using var doc = JsonDocument.Parse(DecodeJwtPayload(jwt));
+        var sub = doc.RootElement.TryGetProperty("sub", out var s) && Guid.TryParse(s.GetString(), out var id) ? id : Guid.Empty;
+        var email = doc.RootElement.TryGetProperty("email", out var e) ? e.GetString() : null;
+        return (sub, email);
+    }
+
+    internal static string DecodeJwtPayload(string jwt)
+    {
         var parts = jwt.Split('.');
         if (parts.Length < 2) throw new SupabaseException("Malformed access token.", 400);
         var payload = parts[1].Replace('-', '+').Replace('_', '/');
         payload = payload.PadRight(payload.Length + (4 - payload.Length % 4) % 4, '=');
-        using var doc = JsonDocument.Parse(Encoding.UTF8.GetString(Convert.FromBase64String(payload)));
-        var sub = doc.RootElement.TryGetProperty("sub", out var s) && Guid.TryParse(s.GetString(), out var id) ? id : Guid.Empty;
-        var email = doc.RootElement.TryGetProperty("email", out var e) ? e.GetString() : null;
-        return (sub, email);
+        return Encoding.UTF8.GetString(Convert.FromBase64String(payload));
     }
 
     private sealed record TokenResponse(string AccessToken, string RefreshToken, int ExpiresIn, UserDto? User);

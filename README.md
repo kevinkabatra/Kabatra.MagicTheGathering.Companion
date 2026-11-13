@@ -49,13 +49,15 @@ Without this, everything works but decks stay in the browser they were made in.
    - `https://kevinkabatra.github.io/Kabatra.MagicTheGathering.Companion/**`
    - `http://localhost:5243/**` (for running locally)
 4. Optional but handy on phones: in **Authentication → Email Templates → Magic Link**, add `{{ .Token }}` to the email so it includes a 6-digit code. The app accepts the code too, which helps when the link opens in a different browser than the app.
-5. In **Project Settings → API**, copy the **Project URL** and the **anon public** key into `src/Kabatra.MagicTheGathering.Companion/wwwroot/appsettings.json`:
+5. In **Settings → API Keys**, copy the **publishable** key (it starts with `sb_publishable_`). The **Project URL** is in the dashboard's **Connect** dialog, or is `https://<project-ref>.supabase.co`. Put both into `src/Kabatra.MagicTheGathering.Companion/wwwroot/appsettings.json`:
 
    ```json
-   { "Supabase": { "Url": "https://YOUR-PROJECT.supabase.co", "AnonKey": "YOUR-ANON-KEY" } }
+   { "Supabase": { "Url": "https://YOUR-PROJECT.supabase.co", "PublishableKey": "sb_publishable_..." } }
    ```
 
-   The anon key is meant to be public; the database's row-level security is what protects the data. Never put the `service_role` key here.
+   The publishable key is meant to be public; the database's row-level security is what protects the data. **Never use a secret key** (`sb_secret_...`) or the legacy `service_role` key here: they bypass row-level security, and the app refuses to use them.
+
+   *Legacy keys:* Supabase is retiring the old `anon` / `service_role` keys by the end of 2026. Until then, an `anon` key also works, either in `PublishableKey` or in the old `AnonKey` setting. Once the app uses the publishable key, you can disable the legacy keys under **Settings → API Keys**.
 
 Supabase's built-in email sender is rate-limited (a few emails an hour), which is fine for a playgroup. For more, connect your own SMTP server under **Authentication → Emails**.
 

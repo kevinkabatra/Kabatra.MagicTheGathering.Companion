@@ -9,7 +9,7 @@ namespace Kabatra.MagicTheGathering.Companion.Tests;
 public class CloudTests
 {
     private static readonly Guid UserId = Guid.Parse("11111111-2222-3333-4444-555555555555");
-    private static readonly SupabaseOptions Options = new("https://example.supabase.co", "anon-key");
+    private static readonly SupabaseOptions Options = new("https://example.supabase.co", "sb_publishable_test123");
 
     private static string Jwt(Guid sub, string email)
     {
@@ -66,10 +66,56 @@ public class CloudTests
 
         var (request, body) = handler.Requests.Single();
         Assert.Equal("https://example.supabase.co/auth/v1/otp?redirect_to=https%3A%2F%2Fsite%2Fapp%2F", request.RequestUri!.ToString());
-        Assert.Equal("anon-key", request.Headers.GetValues("apikey").Single());
+        Assert.Equal("sb_publishable_test123", request.Headers.GetValues("apikey").Single());
+        // Publishable keys aren't JWTs, so they must never be sent as a Bearer token.
+        Assert.Null(request.Headers.Authorization);
         Assert.Contains("\"email\":\"me@example.com\"", body);
         Assert.Contains("\"create_user\":true", body);
     }
+
+    [Fact]
+    public async Task SignedInRequests_SendUserTokenAsBearer_AndKeyOnlyAsApiKey()
+    {
+        var handler = new FakeHandler((request, _) => request.RequestUri!.AbsolutePath == "/auth/v1/verify"
+            ? FakeHandler.Json($$"""{ "access_token": "{{Jwt(UserId, "a@b.c")}}", "refresh_token": "r1", "expires_in": 3600 }""")
+            : FakeHandler.Json("[]"));
+        var client = new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore());
+
+        await client.VerifyEmailCodeAsync("a@b.c", "123456");
+        await client.GetAsync<List<Playgroup>>("playgroups");
+
+        var verify = handler.Requests[0].Request;
+        Assert.Null(verify.Headers.Authorization);
+        var rest = handler.Requests[1].Request;
+        Assert.Equal("sb_publishable_test123", rest.Headers.GetValues("apikey").Single());
+        Assert.Equal("Bearer", rest.Headers.Authorization!.Scheme);
+        Assert.Equal(client.Session!.AccessToken, rest.Headers.Authorization.Parameter);
+    }
+
+    [Fact]
+    public void Options_AcceptPublishableAndLegacyAnonKeys()
+    {
+        var anon = $"{B64Url("""{"alg":"HS256"}""")}.{B64Url("""{"role":"anon"}""")}.sig"; // starts with "eyJ", like every JWT
+        Assert.True(new SupabaseOptions("https://x.supabase.co", "sb_publishable_abc").IsConfigured);
+        Assert.False(new SupabaseOptions("https://x.supabase.co", "sb_publishable_abc").IsLegacyKey);
+        Assert.True(new SupabaseOptions("https://x.supabase.co", anon).IsConfigured);
+        Assert.True(new SupabaseOptions("https://x.supabase.co", anon).IsLegacyKey);
+    }
+
+    [Theory]
+    [InlineData("sb_secret_abc123")]
+    [InlineData("service_role")]
+    public void Options_RefuseSecretKeys(string kind)
+    {
+        var key = kind == "service_role"
+            ? $"{B64Url("""{"alg":"HS256"}""")}.{B64Url("""{"role":"service_role"}""")}.sig"
+            : kind;
+        var options = new SupabaseOptions("https://x.supabase.co", key);
+        Assert.False(options.IsConfigured);
+        Assert.Contains("secret key", options.Problem);
+    }
+
+    private static string B64Url(string s) => Convert.ToBase64String(Encoding.UTF8.GetBytes(s)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     [Fact]
     public async Task ExpiredSession_IsRefreshedBeforeRestCalls()

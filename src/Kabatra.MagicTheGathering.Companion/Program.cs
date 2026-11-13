@@ -18,8 +18,11 @@ builder.Services.AddScoped<GameSession>();
 builder.Services.AddScoped(_ => new ScryfallClient(new HttpClient { BaseAddress = ScryfallClient.DefaultBaseAddress }));
 builder.Services.AddScoped<CardCatalog>();
 
-// Shared decks in Supabase. Leave Supabase:Url / Supabase:AnonKey empty in appsettings.json to keep decks on the device.
-var supabase = new SupabaseOptions(builder.Configuration["Supabase:Url"], builder.Configuration["Supabase:AnonKey"]);
+// Shared decks in Supabase. Leave Supabase:Url / Supabase:PublishableKey empty in appsettings.json to keep decks on the device.
+// Supabase:AnonKey is still read so a project on the legacy keys keeps working until it migrates.
+var supabase = new SupabaseOptions(
+    builder.Configuration["Supabase:Url"],
+    builder.Configuration["Supabase:PublishableKey"] is { Length: > 0 } publishable ? publishable : builder.Configuration["Supabase:AnonKey"]);
 builder.Services.AddSingleton(supabase);
 builder.Services.AddScoped(sp => new SupabaseClient(new HttpClient(), supabase, sp.GetRequiredService<IKeyValueStore>()));
 builder.Services.AddScoped<PlaygroupService>();
