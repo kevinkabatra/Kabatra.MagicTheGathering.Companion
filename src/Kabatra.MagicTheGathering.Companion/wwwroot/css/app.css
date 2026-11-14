@@ -9,6 +9,8 @@
     --muted: #9aa3af;
     --accent: #e0a84b;
     --danger: #ef4444;
+    --unsaved-bg: rgba(250, 204, 21, 0.22);
+    --unsaved-text: #fde047;
     --radius: 14px;
     --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
@@ -23,6 +25,8 @@
         --text: #15181d;
         --muted: #5f6873;
         --accent: #b7791f;
+        --unsaved-bg: #fef08a;
+        --unsaved-text: #15181d;
     }
 }
 
@@ -354,6 +358,15 @@ input[type="search"], input[type="email"] { min-width: 0; }
     user-select: text;
 }
 .card-name:hover { color: var(--accent); }
+/* A line added or changed since the last save: the name gets a highlighter mark. */
+.deck-line.unsaved-line .card-name {
+    background: var(--unsaved-bg);
+    color: var(--unsaved-text);
+    border-radius: 4px;
+    padding-left: 0.3rem;
+    padding-right: 0.3rem;
+    justify-self: start;
+}
 .deck-line .price { font-size: 0.8rem; font-variant-numeric: tabular-nums; text-align: right; min-width: 3.6rem; }
 .section-value { float: right; font-weight: 400; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
 .deck-value { font-variant-numeric: tabular-nums; }

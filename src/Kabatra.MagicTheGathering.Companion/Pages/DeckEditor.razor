@@ -123,13 +123,13 @@
                 @if (format.HasCommander)
                 {
                     <DeckSectionList Deck="_deck" Resolving="_resolving" Title="@format.CommanderLabel" Lines="Lines(DeckSection.Commander)" Cards="_cards" Format="format"
-                                     OnChange="OnLineChanged" OnPreview="c => _preview = c" EmptyText="Tap ★ on a search result to set it here." />
+                                     OnChange="OnLineChanged" OnPreview="c => _preview = c" IsUnsaved="IsUnsaved" EmptyText="Tap ★ on a search result to set it here." />
                 }
 
                 @foreach (var group in MainGroups())
                 {
                     <DeckSectionList Deck="_deck" Resolving="_resolving" Title="@group.Key" Lines="group.ToList()" Cards="_cards" Format="format"
-                                     OnChange="OnLineChanged" OnPreview="c => _preview = c" />
+                                     OnChange="OnLineChanged" OnPreview="c => _preview = c" IsUnsaved="IsUnsaved" />
                 }
                 @if (!_deck.In(DeckSection.Main).Any())
                 {
@@ -139,7 +139,7 @@
                 @if (format.MaxSideboard > 0 || _deck.In(DeckSection.Sideboard).Any())
                 {
                     <DeckSectionList Deck="_deck" Resolving="_resolving" Title="Sideboard" Lines="Lines(DeckSection.Sideboard)" Cards="_cards" Format="format"
-                                     OnChange="OnLineChanged" OnPreview="c => _preview = c" EmptyText="No sideboard cards." />
+                                     OnChange="OnLineChanged" OnPreview="c => _preview = c" IsUnsaved="IsUnsaved" EmptyText="No sideboard cards." />
                 }
 
                 <ManaCurve Deck="_deck" Cards="_cards" />
@@ -210,6 +210,19 @@
     private string? _saveError;
     private IDisposable? _leaveGuard;
 
+    /// <summary>
+    /// Each line's copies and section as last loaded or saved, to flag lines with unsaved changes. Keyed by the line
+    /// itself, since a deck can hold several printings of the same name (basic lands, say).
+    /// </summary>
+    private Dictionary<DeckCard, (int Quantity, DeckSection Section)> _savedLines = new(ReferenceEqualityComparer.Instance);
+
+    private void SnapshotSaved() => _savedLines = _deck!.Cards
+        .ToDictionary<DeckCard, DeckCard, (int, DeckSection)>(l => l, l => (l.Quantity, l.Section), ReferenceEqualityComparer.Instance);
+
+    /// <summary>True for a line that's new, or whose quantity or section changed, since the deck was last saved.</summary>
+    private bool IsUnsaved(DeckCard line) =>
+        !_savedLines.TryGetValue(line, out var saved) || saved != (line.Quantity, line.Section);
+
     protected override async Task OnInitializedAsync()
     {
         await Library.InitializeAsync();
@@ -260,6 +273,7 @@
             if (_dirty && !await Js.InvokeAsync<bool>("confirm", "Leave without saving your changes?")) ctx.PreventNavigation();
         });
 
+        SnapshotSaved();
         await ResolveAsync();
     }
 
@@ -350,6 +364,7 @@
             _deck.CoverImageUrl = PickCover();
             var saved = await store.SaveAsync(_deck);
             _dirty = false;
+            SnapshotSaved();
             if (Id is null) Nav.NavigateTo($"decks/{saved.Id}", replace: true);
         }
         catch (Exception e) when (e is SupabaseException or HttpRequestException)
