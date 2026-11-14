@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Text.Json.Serialization;
 
 namespace Kabatra.MagicTheGathering.Companion.Core.Cards;
@@ -55,15 +56,23 @@ public sealed class ScryfallClient
 
     /// <summary>
     /// Runs a Scryfall search (full syntax supported, e.g. "t:dragon c:r"). One printing per card, sorted by name.
+    /// A search limited to a set (e.g. "set:ddf") instead lists every printing in collector-number order,
+    /// like Scryfall's set pages, so cards that share a name (basic lands) are all shown.
     /// </summary>
     public async Task<CardSearchPage> SearchAsync(string query, int page = 1, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(query)) return new([], 0, false);
-        var url = $"cards/search?q={Uri.EscapeDataString(query.Trim())}&unique=cards&order=name&page={page}";
+        var mode = IsSetSearch(query) ? "unique=prints&order=set" : "unique=cards&order=name";
+        var url = $"cards/search?q={Uri.EscapeDataString(query.Trim())}&{mode}&page={page}";
         var result = await GetAsync<ListDto>(url, ct);
         if (result is null) return new([], 0, false);
         return new(result.Data.Select(ToCardInfo).ToList(), result.TotalCards, result.HasMore);
     }
+
+    // "set:ddf", "s:ddf", "e:ddf", "edition=ddf" and so on; a negated "-set:ddf" doesn't count.
+    private static readonly Regex SetFilter = new(@"(?<![\w-])(?:set|s|e|edition)[:=]", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    internal static bool IsSetSearch(string query) => SetFilter.IsMatch(query);
 
     /// <summary>
     /// Every paper printing of a card (each set, promo and collector number), newest first, at most
