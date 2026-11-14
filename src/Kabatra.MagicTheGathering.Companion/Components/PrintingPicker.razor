@@ -1,4 +1,6 @@
-@* A grid of a card's printings to choose from, with a filter once there are many. Used by scanning and search. *@
+@* A grid of a card's printings to choose from, with a filter once there are many. Used by scanning and search.
+   Hovering a printing with a mouse, or long-pressing it on a touch screen, shows it larger. *@
+@implements IDisposable
 
 @{ var shown = Filtered(); }
 <div class="printing-picker">
@@ -15,7 +17,10 @@
         @foreach (var printing in shown)
         {
             <li @key="printing.Id">
-                <button class="printing @(printing.Id == SelectedId ? "on" : "")" @onclick="() => OnPick.InvokeAsync(printing)"
+                <button class="printing @(printing.Id == SelectedId ? "on" : "")" @onclick="() => PickAsync(printing)"
+                        @onpointerenter="e => PointerEnter(e, printing)" @onpointerleave="() => EndZoom(printing)"
+                        @onpointerdown="e => PointerDown(e, printing)" @onpointerup="() => EndPress(printing)"
+                        @onpointercancel="() => EndZoom(printing)" @oncontextmenu:preventDefault="true"
                         title="@printing.SetName #@printing.CollectorNumber" aria-pressed="@(printing.Id == SelectedId)">
                     @if (printing.ImageSmall is not null) { <img src="@printing.ImageSmall" alt="" loading="lazy" /> }
                     <span class="set-name">@printing.SetName</span>
@@ -26,6 +31,14 @@
     </ul>
     @if (shown.Count == 0) { <p class="muted small">No printing matches “@_filter”.</p> }
 </div>
+
+@if (_zoomed is { } zoomed && (zoomed.ImageNormal ?? zoomed.ImageSmall) is { } zoomImage)
+{
+    <div class="printing-zoom" aria-hidden="true">
+        <img src="@zoomImage" alt="" />
+        <span>@zoomed.SetName · @zoomed.SetCode.ToUpperInvariant() #@zoomed.CollectorNumber</span>
+    </div>
+}
 
 @code {
     [Parameter, EditorRequired] public IReadOnlyList<CardInfo> Printings { get; set; } = [];
@@ -38,6 +51,62 @@
     [Parameter] public string HideText { get; set; } = "Hide";
 
     private string _filter = "";
+
+    /// <summary>The printing shown large, while hovered or held.</summary>
+    private CardInfo? _zoomed;
+    private CancellationTokenSource? _press;
+
+    /// <summary>Set after a long press, so lifting the finger doesn't also pick the printing.</summary>
+    private bool _swallowClick;
+
+    private const int LongPressMs = 450;
+
+    private void PointerEnter(PointerEventArgs e, CardInfo printing)
+    {
+        if (e.PointerType == "mouse") _zoomed = printing;
+    }
+
+    private async Task PointerDown(PointerEventArgs e, CardInfo printing)
+    {
+        if (e.PointerType == "mouse") return;
+        _press?.Cancel();
+        _press = new CancellationTokenSource();
+        var token = _press.Token;
+        _swallowClick = false;
+        try
+        {
+            await Task.Delay(LongPressMs, token);
+            _zoomed = printing;
+            _swallowClick = true;
+        }
+        catch (TaskCanceledException) { } // lifted, or scrolled away, before it counted as a long press
+    }
+
+    /// <summary>Finger lifted: a short tap goes on to pick the printing; a long press just closes the zoom.</summary>
+    private void EndPress(CardInfo printing)
+    {
+        _press?.Cancel();
+        if (_swallowClick) _zoomed = null;
+    }
+
+    private void EndZoom(CardInfo printing)
+    {
+        _press?.Cancel();
+        if (_zoomed?.Id == printing.Id) _zoomed = null;
+    }
+
+    private Task PickAsync(CardInfo printing)
+    {
+        if (_swallowClick)
+        {
+            _swallowClick = false;
+            return Task.CompletedTask;
+        }
+        _zoomed = null;
+        return OnPick.InvokeAsync(printing);
+    }
+
+    public void Dispose() => _press?.Cancel();
 
     private List<CardInfo> Filtered()
     {
