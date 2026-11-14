@@ -67,6 +67,35 @@ public class CardLookupTests
     }
 
     [Fact]
+    public async Task Search_OnePrintingPerCardByName()
+    {
+        var (client, handler) = NewClient((_, _) => FakeHandler.Json("""{ "object": "list", "total_cards": 0, "has_more": false, "data": [] }"""));
+
+        await client.SearchAsync("t:instant -set:ddf");
+
+        var query = handler.Requests[0].Request.RequestUri!.Query;
+        Assert.Contains("unique=cards", query);
+        Assert.Contains("order=name", query);
+    }
+
+    [Theory]
+    [InlineData("set:ddf")]
+    [InlineData("s:ddf t:land")]
+    [InlineData("t:land e:ddf")]
+    [InlineData("Edition=DDF")]
+    public async Task Search_InASetListsEveryPrinting(string search)
+    {
+        // Duel Decks: Elspeth vs Tezzeret has four Plains and four Islands; Scryfall counts all 79 cards.
+        var (client, handler) = NewClient((_, _) => FakeHandler.Json("""{ "object": "list", "total_cards": 0, "has_more": false, "data": [] }"""));
+
+        await client.SearchAsync(search);
+
+        var query = handler.Requests[0].Request.RequestUri!.Query;
+        Assert.Contains("unique=prints", query);
+        Assert.Contains("order=set", query);
+    }
+
+    [Fact]
     public async Task Search_NotFoundMeansNoResults()
     {
         var (client, _) = NewClient((_, _) => FakeHandler.Json("""{ "object": "error", "code": "not_found", "details": "No cards found." }""", HttpStatusCode.NotFound));
