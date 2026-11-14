@@ -2,7 +2,7 @@
 
 A table-side helper for playing Magic: The Gathering with friends. It runs in any web browser — put it on a phone or tablet in the middle of the table and everyone can see and tap their own life total.
 
-**Play it now: https://kabatra-mtg-companion.pages.dev/**
+**Play it now: https://someoneelsestable.com/**
 
 Built in C# with Blazor WebAssembly (.NET 8), so the whole app runs in the browser with no server.
 
@@ -61,7 +61,8 @@ Signing in is optional. Without Supabase, everyone uses the app as a guest and d
 
    **Upgrading from the version with email sign-in?** The data model changed. After deploying, run [`supabase/wipe.sql`](supabase/wipe.sql) once, then `schema.sql`. **The wipe permanently deletes every player profile, playgroup, deck and recorded game.** Sign-in accounts are kept.
 3. In **Authentication → URL Configuration**, set **Site URL** to the live site and add these **Redirect URLs**:
-   - `https://kabatra-mtg-companion.pages.dev/**`
+   - `https://someoneelsestable.com/**`
+   - `https://kabatra-mtg-companion.pages.dev/**` (the Cloudflare Pages address, which keeps working)
    - `http://localhost:5243/**` (for running locally)
 4. Turn on the sign-in providers under **Authentication → Sign In / Providers**. Each provider's page in Supabase shows the **Callback URL** (`https://<project-ref>.supabase.co/auth/v1/callback`) to give the provider.
    - **Google:** in the [Google Cloud console](https://console.cloud.google.com/apis/credentials), set up the OAuth consent screen, then create an **OAuth client ID** of type *Web application*. Add the Supabase callback URL under **Authorized redirect URIs**. Paste the client ID and secret into Supabase's Google provider.
@@ -107,7 +108,9 @@ One-time setup:
    - `CLOUDFLARE_ACCOUNT_ID`: your account ID, shown on **Workers & Pages → Overview** and in the dashboard's URL
 4. Run the **Deploy to Cloudflare Pages** workflow (or push to `main`). The first run creates the `kabatra-mtg-companion` project, served at `https://kabatra-mtg-companion.pages.dev`. To use another name, add a repository variable `CLOUDFLARE_PAGES_PROJECT`.
 
-Until the secrets are added, the workflow builds the app but skips the deploy. A custom domain can be added under the project's **Custom domains** tab; if you add one, add it to the Supabase redirect URLs too.
+Until the secrets are added, the workflow builds the app but skips the deploy.
+
+The live site uses the custom domain `someoneelsestable.com`, added under the Pages project's **Custom domains** tab (the domain is registered with Cloudflare, so DNS and the certificate are set up automatically). If you change or add a domain, update the Supabase **Site URL** and **Redirect URLs** to match.
 
 ## Ideas for later
 
