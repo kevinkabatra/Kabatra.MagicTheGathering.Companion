@@ -34,10 +34,13 @@
             @if (found.TotalCards == 0) { <span>No cards found.</span> }
             else { <span>@found.TotalCards card@(found.TotalCards == 1 ? "" : "s")@(found.HasMore ? $", showing {found.Cards.Count}" : "")</span> }
         </p>
+        <ErrorMessage Message="@_printingsError" />
         <ul class="search-results">
-            @foreach (var card in found.Cards)
+            @for (var i = 0; i < found.Cards.Count; i++)
             {
-                <li>
+                var index = i;
+                var card = found.Cards[i];
+                <li @key="index">
                     <button class="card-thumb" title="@card.Name" @onclick="() => _preview = card">
                         @if (card.ImageSmall is not null) { <img src="@card.ImageSmall" alt="@card.Name" loading="lazy" /> }
                         else { <span>@card.Name</span> }
@@ -60,6 +63,10 @@
                             }
                         }
                     </div>
+                    <button class="link small printing-link" @onclick="() => ShowPrintingsAsync(index)" disabled="@(_loadingIndex == index)"
+                            title="@card.SetName #@card.CollectorNumber. Choose a different printing" aria-label="Choose a printing of @card.Name">
+                        @(_loadingIndex == index ? "Loading…" : $"{card.SetCode.ToUpperInvariant()} #{card.CollectorNumber} ▾")
+                    </button>
                 </li>
             }
         </ul>
@@ -71,6 +78,16 @@
 </section>
 
 <CardPreview Card="_preview" OnClose="() => _preview = null" />
+
+@if (_printingsFor is { } choosing && _printings is { } printings && _results is { } results && choosing < results.Cards.Count)
+{
+    <div class="overlay" @onclick="ClosePrintings">
+        <div class="dialog printing-dialog" @onclick:stopPropagation="true" role="dialog" aria-label="Printings of @results.Cards[choosing].Name">
+            <h2>@results.Cards[choosing].Name</h2>
+            <PrintingPicker Printings="printings" SelectedId="results.Cards[choosing].Id" OnPick="PickPrinting" OnHide="ClosePrintings" HideText="Close" />
+        </div>
+    </div>
+}
 
 @code {
     [Parameter, EditorRequired] public EventCallback<(CardInfo Card, DeckSection Section)> OnAdd { get; set; }
@@ -94,6 +111,12 @@
     private bool _searching;
     private string? _error;
     private CancellationTokenSource? _typing;
+
+    // Choosing a printing for one search result: which result, and the printings to pick from.
+    private int? _printingsFor;
+    private int? _loadingIndex;
+    private IReadOnlyList<CardInfo>? _printings;
+    private string? _printingsError;
 
     private async Task OnInput(ChangeEventArgs e)
     {
@@ -137,6 +160,7 @@
         var query = _onlyLegal && FormatKey is not null ? $"({_lastQuery}) legal:{FormatKey}" : _lastQuery;
         _searching = !append;
         _error = null;
+        _printingsError = null;
         try
         {
             var page = await Catalog.SearchAsync(query, _page);
@@ -152,6 +176,48 @@
         {
             _searching = false;
         }
+    }
+
+    private async Task ShowPrintingsAsync(int index)
+    {
+        if (_results is not { } results || index >= results.Cards.Count || _loadingIndex is not null) return;
+        var card = results.Cards[index];
+        _loadingIndex = index;
+        _printingsError = null;
+        try
+        {
+            var printings = await Catalog.GetPrintingsAsync(card);
+            if (!ReferenceEquals(_results, results)) return; // a new search replaced the results while loading
+            // Scryfall only lists paper printings for real cards; keep the one shown even if it's digital-only.
+            _printings = printings.Any(p => p.Id == card.Id) ? printings : [card, .. printings];
+            _printingsFor = index;
+        }
+        catch (Exception ex) when (ex is ScryfallException or HttpRequestException)
+        {
+            _printingsError = "Couldn't load the other printings. Check your connection.";
+        }
+        finally
+        {
+            _loadingIndex = null;
+        }
+    }
+
+    /// <summary>Swaps the search result for the chosen printing, so its add buttons add that printing.</summary>
+    private void PickPrinting(CardInfo printing)
+    {
+        if (_results is { } results && _printingsFor is { } index && index < results.Cards.Count)
+        {
+            var cards = results.Cards.ToList();
+            cards[index] = printing;
+            _results = results with { Cards = cards };
+        }
+        ClosePrintings();
+    }
+
+    private void ClosePrintings()
+    {
+        _printingsFor = null;
+        _printings = null;
     }
 
     private Task Add(CardInfo card, DeckSection section) => OnAdd.InvokeAsync((card, section));
