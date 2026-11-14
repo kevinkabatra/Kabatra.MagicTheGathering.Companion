@@ -2,7 +2,7 @@
 
 A table-side helper for playing Magic: The Gathering with friends. It runs in any web browser — put it on a phone or tablet in the middle of the table and everyone can see and tap their own life total.
 
-**Play it now: https://kevinkabatra.github.io/Kabatra.MagicTheGathering.Companion/**
+**Play it now: https://kabatra-mtg-companion.pages.dev/**
 
 Built in C# with Blazor WebAssembly (.NET 8), so the whole app runs in the browser with no server.
 
@@ -52,7 +52,7 @@ Without this, everything works but decks, player profiles and play history stay 
 
    **Already set up from an older version?** Run `schema.sql` again after updating: it only adds what's missing and keeps your decks. Until you do, decks keep working but the Players page asks for the update.
 3. In **Authentication → URL Configuration**, set **Site URL** to the live site and add these **Redirect URLs**:
-   - `https://kevinkabatra.github.io/Kabatra.MagicTheGathering.Companion/**`
+   - `https://kabatra-mtg-companion.pages.dev/**`
    - `http://localhost:5243/**` (for running locally)
 4. Optional but handy on phones: in **Authentication → Email Templates → Magic Link**, add `{{ .Token }}` to the email so it includes a 6-digit code. The app accepts the code too, which helps when the link opens in a different browser than the app.
 5. In **Settings → API Keys**, copy the **publishable** key (it starts with `sb_publishable_`). The **Project URL** is in the dashboard's **Connect** dialog, or is `https://<project-ref>.supabase.co`. Put both into `src/Kabatra.MagicTheGathering.Companion/wwwroot/appsettings.json`:
@@ -82,7 +82,18 @@ Card names, images, and legality come from the [Scryfall API](https://scryfall.c
 
 ## Hosting
 
-Every push to `main` builds and deploys the app to GitHub Pages via `.github/workflows/deploy-pages.yml`. In the repository's **Settings → Pages**, set **Source** to **GitHub Actions** once.
+Every push to `main` builds the app and deploys it to [Cloudflare Pages](https://pages.cloudflare.com) via `.github/workflows/deploy.yml`. Cloudflare's free plan allows commercial use; GitHub Pages doesn't.
+
+One-time setup:
+
+1. Create a free [Cloudflare](https://dash.cloudflare.com/sign-up) account.
+2. Under **My Profile → API Tokens**, create a token with the **Cloudflare Pages: Edit** permission.
+3. In this repository's **Settings → Secrets and variables → Actions**, add two secrets:
+   - `CLOUDFLARE_API_TOKEN`: the token
+   - `CLOUDFLARE_ACCOUNT_ID`: your account ID, shown on **Workers & Pages → Overview** and in the dashboard's URL
+4. Run the **Deploy to Cloudflare Pages** workflow (or push to `main`). The first run creates the `kabatra-mtg-companion` project, served at `https://kabatra-mtg-companion.pages.dev`. To use another name, add a repository variable `CLOUDFLARE_PAGES_PROJECT`.
+
+Until the secrets are added, the workflow builds the app but skips the deploy. A custom domain can be added under the project's **Custom domains** tab; if you add one, add it to the Supabase redirect URLs too.
 
 ## Ideas for later
 
