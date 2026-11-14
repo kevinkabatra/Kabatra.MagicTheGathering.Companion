@@ -56,8 +56,11 @@ Signing in is optional. Without Supabase, everyone uses the app as a guest and d
    - `decks`: decks owned by a profile, visible in every playgroup that profile is in
    - `game_records`: each playgroup's play history
    - `claim_attempts`: rate limiting for profile invite codes
+   - `subscriptions`, `billing_customers` and `billing_events`: Premium subscriptions from any payment provider or app store, the user's id at each provider, and a log of payment webhooks. Users can read their own subscriptions but never change them; only the payment Edge Functions write these tables
 
-   It also sets up row-level security and the functions the app calls (`create_my_profile`, `claim_profile`, `create_playgroup`, `join_playgroup`, and others).
+   It also sets up row-level security and the functions the app calls (`create_my_profile`, `claim_profile`, `create_playgroup`, `join_playgroup`, `my_entitlements`, `has_entitlement`, and others).
+
+   CI runs `schema.sql` against a plain Postgres and then the SQL tests in [`supabase/tests`](supabase/tests), using a small stand-in for Supabase's `auth` schema (`supabase/tests/supabase-stub.sql`). Don't run that stub on a real project.
 
    **Upgrading from the version with email sign-in?** The data model changed. After deploying, run [`supabase/wipe.sql`](supabase/wipe.sql) once, then `schema.sql`. **The wipe permanently deletes every player profile, playgroup, deck and recorded game.** Sign-in accounts are kept.
 3. In **Authentication → URL Configuration**, set **Site URL** to the live site and add these **Redirect URLs**:

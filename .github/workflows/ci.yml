@@ -16,3 +16,35 @@ jobs:
       - run: dotnet restore
       - run: dotnet build --no-restore --configuration Release
       - run: dotnet test --no-build --configuration Release --verbosity normal
+
+  # Runs supabase/schema.sql against a plain Postgres (with a stub of the Supabase auth schema), twice to check it's
+  # safe to re-run, then the SQL tests in supabase/tests.
+  database:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stub the Supabase auth schema
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/supabase-stub.sql
+      - name: Run schema.sql
+        run: psql -v ON_ERROR_STOP=1 -f supabase/schema.sql
+      - name: Run schema.sql again
+        run: psql -v ON_ERROR_STOP=1 -f supabase/schema.sql
+      - name: Billing tests
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/billing.sql
