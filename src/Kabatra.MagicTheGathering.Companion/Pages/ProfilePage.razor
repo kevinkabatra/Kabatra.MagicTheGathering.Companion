@@ -181,6 +181,41 @@
             {
                 <section class="search-side">
                     <h2>Add cards</h2>
+                    @if (_changes.Count > 0)
+                    {
+                        var added = _changes.Where(c => c.IsAddition).Sum(c => c.Delta);
+                        var removed = -_changes.Where(c => !c.IsAddition).Sum(c => c.Delta);
+                        <section class="pending-changes" aria-live="polite">
+                            <div class="row spread">
+                                <h3>Unsaved changes</h3>
+                                <div class="actions">
+                                    <button @onclick="DiscardAsync" disabled="@_saving">Discard changes</button>
+                                    <button class="primary" @onclick="SaveAsync" disabled="@(_saving || string.IsNullOrWhiteSpace(_profile.Name))">@(_saving ? "Saving…" : "Save")</button>
+                                </div>
+                            </div>
+                            <p class="muted small">
+                                @if (added > 0) { <span>+@added card@(added == 1 ? "" : "s")</span> }
+                                @if (added > 0 && removed > 0) { <span> · </span> }
+                                @if (removed > 0) { <span>−@removed card@(removed == 1 ? "" : "s")</span> }
+                            </p>
+                            <ul>
+                                @foreach (var change in _showAllChanges ? _changes : _changes.Take(ChangesShown))
+                                {
+                                    <li class="@(change.IsAddition ? "added" : "removed")">
+                                        <span class="delta">@(change.IsAddition ? "+" : "−")@Math.Abs(change.Delta)</span>
+                                        <span class="name">@change.Name</span>
+                                        <span class="muted small">@change.Printing</span>
+                                    </li>
+                                }
+                            </ul>
+                            @if (_changes.Count > ChangesShown)
+                            {
+                                <button class="link small" @onclick="() => _showAllChanges = !_showAllChanges">
+                                    @(_showAllChanges ? "Show fewer" : $"Show all {_changes.Count}")
+                                </button>
+                            }
+                        </section>
+                    }
                     <CardSearch OnAdd="AddCard" CollectionMode="true" />
                 </section>
             }
@@ -279,6 +314,21 @@
     private bool _codeBusy;
     private bool _copied;
 
+    /// <summary>The profile as last loaded or saved, and the collection changes since.</summary>
+    private CollectionSnapshot? _saved;
+    private IReadOnlyList<CollectionChange> _changes = [];
+    private bool _showAllChanges;
+
+    /// <summary>How many changes the panel lists before "Show all", so a pasted list doesn't fill the page.</summary>
+    private const int ChangesShown = 10;
+
+    private void SnapshotSaved()
+    {
+        _saved = CollectionSnapshot.Of(_profile!);
+        _changes = [];
+        _showAllChanges = false;
+    }
+
     protected override async Task OnInitializedAsync()
     {
         await Library.InitializeAsync();
@@ -289,6 +339,7 @@
             _profile = await profiles.GetAsync(Id);
             if (_profile is null) { _loadError = "That player doesn't exist any more, or isn't in this playgroup."; return; }
             _savedName = _profile.Name;
+            SnapshotSaved();
             _canManage = Library.CanManage(_profile);
             if (Library.Store is { } decks)
                 _decks = (await decks.ListAsync()).Where(d => d.OwnerProfileId == Id).ToList();
@@ -369,7 +420,22 @@
         StateHasChanged();
     }
 
-    private void Touch() => _dirty = true;
+    private void Touch()
+    {
+        _dirty = true;
+        if (_saved is not null) _changes = _saved.ChangesIn(_profile!);
+    }
+
+    /// <summary>Puts the collection and name back as they were last loaded or saved, after asking.</summary>
+    private async Task DiscardAsync()
+    {
+        if (_profile is null || _saved is null) return;
+        if (!await Js.InvokeAsync<bool>("confirm", "Discard your unsaved changes to this player?")) return;
+        _saved.Restore(_profile);
+        _dirty = false;
+        _error = null;
+        SnapshotSaved();
+    }
 
     private void SetQuantity(DeckCard line, int quantity)
     {
@@ -425,6 +491,7 @@
             var saved = await store.SaveAsync(_profile);
             _dirty = false;
             _savedName = saved.Name;
+            SnapshotSaved();
             await Library.MyProfileSavedAsync(saved);
         }
         catch (Exception e) when (e is SupabaseException or HttpRequestException)

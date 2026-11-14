@@ -6,22 +6,84 @@ public sealed record DeckChange(string Name, DeckSection Section, int Delta)
     public bool IsAddition => Delta > 0;
 }
 
+/// <summary>Copies of one line added (positive) or removed in one section, with the printing it was for.</summary>
+internal readonly record struct LineDelta(string Name, Guid? ScryfallId, string? SetCode, string? CollectorNumber, DeckSection Section, int Delta);
+
 /// <summary>
-/// A deck's card lines as they were when it was loaded or last saved, to list what's changed since.
+/// Card lines as they were when loaded or last saved, to list what's changed since and to put them back.
 /// Lines are tracked by identity rather than name, because looking a card up can rename its line (to the card's
-/// full Scryfall name) and a deck can hold several printings of one name.
+/// full Scryfall name) and a list can hold several printings of one name.
 /// </summary>
+internal sealed class CardLinesSnapshot
+{
+    private sealed record Saved(string Name, Guid? ScryfallId, string? SetCode, string? CollectorNumber, int Quantity, DeckSection Section);
+
+    private readonly Dictionary<DeckCard, Saved> _lines = new(ReferenceEqualityComparer.Instance);
+    private readonly List<DeckCard> _order;
+
+    public CardLinesSnapshot(IEnumerable<DeckCard> lines)
+    {
+        _order = [.. lines];
+        foreach (var line in _order)
+        {
+            _lines[line] = new Saved(line.Name, line.ScryfallId, line.SetCode, line.CollectorNumber, line.Quantity, line.Section);
+        }
+    }
+
+    /// <summary>
+    /// Per line, copies added or removed since the snapshot. A line moved to another section shows as removed from
+    /// the old one and added to the new one. Lines that didn't change are left out.
+    /// </summary>
+    public IEnumerable<LineDelta> Deltas(IEnumerable<DeckCard> current)
+    {
+        var now = new HashSet<DeckCard>(current, ReferenceEqualityComparer.Instance);
+        foreach (var (line, saved) in _lines)
+        {
+            if (!now.Contains(line))
+            {
+                yield return new LineDelta(saved.Name, saved.ScryfallId, saved.SetCode, saved.CollectorNumber, saved.Section, -saved.Quantity);
+            }
+            else if (line.Section == saved.Section)
+            {
+                if (line.Quantity != saved.Quantity) yield return Now(line, line.Quantity - saved.Quantity);
+            }
+            else
+            {
+                yield return Now(line, -saved.Quantity) with { Section = saved.Section };
+                yield return Now(line, line.Quantity);
+            }
+        }
+        foreach (var line in now.Where(l => !_lines.ContainsKey(l)))
+        {
+            yield return Now(line, line.Quantity);
+        }
+    }
+
+    /// <summary>The lines as they were, in their old order, with their old copies and sections put back.</summary>
+    public List<DeckCard> Restore()
+    {
+        foreach (var line in _order)
+        {
+            var saved = _lines[line];
+            line.Quantity = saved.Quantity;
+            line.Section = saved.Section;
+        }
+        return [.. _order];
+    }
+
+    private static LineDelta Now(DeckCard line, int delta) =>
+        new(line.Name, line.ScryfallId, line.SetCode, line.CollectorNumber, line.Section, delta);
+}
+
+/// <summary>A deck as it was when loaded or last saved, to list what's changed since and to discard the changes.</summary>
 public sealed class DeckSnapshot
 {
-    private readonly Dictionary<DeckCard, (string Name, int Quantity, DeckSection Section)> _lines;
-    private readonly List<DeckCard> _order;
+    private readonly CardLinesSnapshot _lines;
     private readonly (string Name, string OwnerName, Guid? OwnerProfileId, string Format, string Notes) _details;
 
     private DeckSnapshot(Deck deck)
     {
-        _lines = new Dictionary<DeckCard, (string, int, DeckSection)>(ReferenceEqualityComparer.Instance);
-        foreach (var line in deck.Cards) _lines[line] = (line.Name, line.Quantity, line.Section);
-        _order = [.. deck.Cards];
+        _lines = new CardLinesSnapshot(deck.Cards);
         _details = (deck.Name, deck.OwnerName, deck.OwnerProfileId, deck.Format, deck.Notes);
     }
 
@@ -38,13 +100,7 @@ public sealed class DeckSnapshot
     public void Restore(Deck deck)
     {
         ArgumentNullException.ThrowIfNull(deck);
-        foreach (var line in _order)
-        {
-            var (_, quantity, section) = _lines[line];
-            line.Quantity = quantity;
-            line.Section = section;
-        }
-        deck.Cards = [.. _order];
+        deck.Cards = _lines.Restore();
         (deck.Name, deck.OwnerName, deck.OwnerProfileId, deck.Format, deck.Notes) = _details;
     }
 
@@ -55,31 +111,7 @@ public sealed class DeckSnapshot
     public IReadOnlyList<DeckChange> ChangesIn(Deck deck)
     {
         ArgumentNullException.ThrowIfNull(deck);
-        var current = new HashSet<DeckCard>(deck.Cards, ReferenceEqualityComparer.Instance);
-        var deltas = new List<(string Name, DeckSection Section, int Delta)>();
-
-        foreach (var (line, saved) in _lines)
-        {
-            if (!current.Contains(line))
-            {
-                deltas.Add((saved.Name, saved.Section, -saved.Quantity));
-            }
-            else if (line.Section == saved.Section)
-            {
-                deltas.Add((line.Name, line.Section, line.Quantity - saved.Quantity));
-            }
-            else
-            {
-                deltas.Add((line.Name, saved.Section, -saved.Quantity));
-                deltas.Add((line.Name, line.Section, line.Quantity));
-            }
-        }
-        foreach (var line in deck.Cards.Where(l => !_lines.ContainsKey(l)))
-        {
-            deltas.Add((line.Name, line.Section, line.Quantity));
-        }
-
-        return deltas
+        return _lines.Deltas(deck.Cards)
             .GroupBy(d => (Name: d.Name.ToUpperInvariant(), d.Section))
             .Select(g => new DeckChange(g.First().Name, g.Key.Section, g.Sum(d => d.Delta)))
             .Where(c => c.Delta != 0)
