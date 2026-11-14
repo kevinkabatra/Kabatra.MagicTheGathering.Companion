@@ -127,3 +127,74 @@ public class CommanderBracketTests
         Assert.Equal(53, BracketCardLists.GameChangers.Count);
     }
 }
+
+public class DeclaredBracketTests
+{
+    private static Deck Commander(CommanderBracket? declared, params string[] cards)
+    {
+        var deck = new Deck { Format = DeckFormat.Commander.Id, DeclaredBracket = declared };
+        deck.Cards.Add(new DeckCard { Name = "Lathril, Blade of the Elves", Section = DeckSection.Commander });
+        foreach (var name in cards) deck.Cards.Add(new DeckCard { Name = name });
+        return deck;
+    }
+
+    [Fact]
+    public void NoChoice_UsesTheEstimate()
+    {
+        var result = CommanderBrackets.Assess(Commander(null, "Sol Ring"))!;
+        Assert.Equal(CommanderBracket.Core, result.Bracket);
+        Assert.Null(result.Declared);
+        Assert.False(result.IsDeclared);
+    }
+
+    [Fact]
+    public void Exhibition_StandsForADeckWithinBracketOneLimits()
+    {
+        var result = CommanderBrackets.Assess(Commander(CommanderBracket.Exhibition, "Sol Ring", "Llanowar Elves"))!;
+        Assert.Equal(CommanderBracket.Exhibition, result.Bracket);
+        Assert.Equal(CommanderBracket.Core, result.Estimated);
+        Assert.True(result.IsDeclared);
+        Assert.Equal("Bracket 1 · Exhibition", result.Label);
+    }
+
+    [Fact]
+    public void Exhibition_DoesNotStandWithGameChangersOrExtraTurns()
+    {
+        var result = CommanderBrackets.Assess(Commander(CommanderBracket.Exhibition, "Rhystic Study", "Time Warp"))!;
+        Assert.Equal(CommanderBracket.Upgraded, result.Bracket);
+        Assert.Equal(CommanderBracket.Exhibition, result.Declared);
+        Assert.False(result.IsDeclared);
+        Assert.Contains(result.Reasons, r => r.Contains("doesn't allow Game Changers or extra turns"));
+    }
+
+    [Fact]
+    public void ExtraTurnsAlone_KeepADeckOutOfExhibition()
+    {
+        // A few extra turns are fine in Bracket 2, so the estimate stays Core, but Bracket 1 allows none.
+        var result = CommanderBrackets.Assess(Commander(CommanderBracket.Exhibition, "Time Warp"))!;
+        Assert.Equal(CommanderBracket.Core, result.Bracket);
+    }
+
+    [Fact]
+    public void Competitive_AlwaysStands()
+    {
+        var result = CommanderBrackets.Assess(Commander(CommanderBracket.Competitive, "Thassa's Oracle", "Demonic Consultation"))!;
+        Assert.Equal(CommanderBracket.Competitive, result.Bracket);
+        Assert.Equal(CommanderBracket.Optimized, result.Estimated);
+        Assert.True(result.IsDeclared);
+        Assert.Equal("Bracket 5 · cEDH", result.Label);
+        Assert.Contains(result.Reasons, r => r.Contains("Early-game two-card combo"));
+    }
+
+    [Theory]
+    [InlineData(CommanderBracket.Core)]
+    [InlineData(CommanderBracket.Upgraded)]
+    [InlineData(CommanderBracket.Optimized)]
+    public void OnlyBracketsOneAndFiveCanBeChosen(CommanderBracket bracket)
+    {
+        Assert.False(CommanderBrackets.CanDeclare(bracket));
+        var result = CommanderBrackets.Assess(Commander(bracket, "Sol Ring"))!;
+        Assert.Equal(CommanderBracket.Core, result.Bracket);
+        Assert.Null(result.Declared);
+    }
+}

@@ -6,6 +6,24 @@
     </div>
     <p class="muted small">@CommanderBrackets.DescriptionOf(Assessment.Bracket)</p>
 
+    @if (CanEdit)
+    {
+        <label class="field bracket-choice">
+            <span class="small">Bracket</span>
+            <select value="@(Deck.DeclaredBracket is { } d ? ((int)d).ToString() : "")" @onchange="ChooseAsync" aria-label="Bracket">
+                <option value="">Estimate from the cards (Bracket @((int)Assessment.Estimated))</option>
+                @foreach (var b in CommanderBrackets.Declarable)
+                {
+                    <option value="@((int)b)">Bracket @((int)b) · @CommanderBrackets.NameOf(b)</option>
+                }
+            </select>
+        </label>
+    }
+    @if (Assessment.Declared is not null && !Assessment.IsDeclared)
+    {
+        <p class="error-text small">@Assessment.Reasons[0]. Showing the estimate instead.</p>
+    }
+
     @if (_open)
     {
         <ul class="reasons">
@@ -39,8 +57,9 @@
         }
 
         <p class="muted small">
-            This is an estimate from the Commander Brackets rules (updated @BracketCardLists.UpdatedOn.ToString("MMMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture)).
-            Bracket 1 (Exhibition) and Bracket 5 (cEDH) depend on how a deck is meant to be played, so they're never estimated.
+            Brackets 2–4 are estimated from the Commander Brackets rules (updated @BracketCardLists.UpdatedOn.ToString("MMMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture)).
+            Bracket 1 (Exhibition) and Bracket 5 (cEDH) depend on how a deck is meant to be played, so its owner chooses them.
+            Exhibition only applies to a deck with no Game Changers, mass land denial, two-card combos or extra turns.
             Talk about your deck with your table before the game.
         </p>
     }
@@ -48,6 +67,21 @@
 
 @code {
     [Parameter, EditorRequired] public BracketAssessment Assessment { get; set; } = default!;
+    [Parameter, EditorRequired] public Deck Deck { get; set; } = default!;
+
+    /// <summary>Whether the owner's choice of Bracket 1 or 5 can be changed here.</summary>
+    [Parameter] public bool CanEdit { get; set; }
+
+    /// <summary>Called after the owner picks a bracket, so the page can re-rate the deck and mark it unsaved.</summary>
+    [Parameter] public EventCallback OnChange { get; set; }
 
     private bool _open;
+
+    private async Task ChooseAsync(ChangeEventArgs e)
+    {
+        Deck.DeclaredBracket = int.TryParse(e.Value?.ToString(), out var n) && CommanderBrackets.CanDeclare((CommanderBracket)n)
+            ? (CommanderBracket)n
+            : null;
+        await OnChange.InvokeAsync();
+    }
 }

@@ -59,6 +59,13 @@ public sealed class Deck
     /// </summary>
     public bool CardsInCollection { get; set; }
 
+    /// <summary>
+    /// The Commander bracket the owner says this deck is, when it's one the cards can't show:
+    /// <see cref="CommanderBracket.Exhibition"/> or <see cref="CommanderBracket.Competitive"/> (cEDH).
+    /// Null to use the estimate. See <see cref="CommanderBrackets.Assess(Deck)"/>.
+    /// </summary>
+    public CommanderBracket? DeclaredBracket { get; set; }
+
     public DateTimeOffset UpdatedAt { get; set; }
 
     public DeckFormat GetFormat() => DeckFormat.FromId(Format);

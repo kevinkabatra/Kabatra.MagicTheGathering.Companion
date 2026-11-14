@@ -87,7 +87,7 @@ public sealed class LocalDeckStore(IKeyValueStore store, TimeProvider? clock = n
 /// <param name="defaultOwner">The profile a new deck without an owner goes to: the signed-in user's own.</param>
 public sealed class SupabaseDeckStore(SupabaseClient supabase, Playgroup? group, Guid defaultOwner) : IDeckStore
 {
-    private const string Columns = "id,owner_profile_id,name,format,notes,cover_image_url,cards,cards_in_collection,updated_at";
+    private const string Columns = "id,owner_profile_id,name,format,notes,cover_image_url,cards,cards_in_collection,bracket,updated_at";
     private const string WithOwnerName = Columns + ",owner:player_profiles(name)";
 
     public string Description => group?.Name ?? "Your decks";
@@ -112,7 +112,7 @@ public sealed class SupabaseDeckStore(SupabaseClient supabase, Playgroup? group,
     {
         var row = new DeckWrite(
             deck.Id, deck.OwnerProfileId ?? defaultOwner, deck.Name.Trim(), deck.Format, deck.Notes ?? "", deck.CoverImageUrl,
-            deck.Cards.Select(CardRow.From).ToList(), deck.CardsInCollection);
+            deck.Cards.Select(CardRow.From).ToList(), deck.CardsInCollection, (int?)deck.DeclaredBracket);
         var rows = await supabase.UpsertAsync<DeckRow>($"decks?select={WithOwnerName}", row, ct);
         return rows.FirstOrDefault()?.ToDeck()
                ?? throw new SupabaseException("Only the deck's owner (or whoever looks after their profile) can change it.", 403);
@@ -137,6 +137,7 @@ public sealed class SupabaseDeckStore(SupabaseClient supabase, Playgroup? group,
         string? CoverImageUrl,
         List<CardRow>? Cards,
         bool? CardsInCollection,
+        int? Bracket,
         DateTimeOffset UpdatedAt,
         OwnerRow? Owner)
     {
@@ -150,6 +151,7 @@ public sealed class SupabaseDeckStore(SupabaseClient supabase, Playgroup? group,
             Notes = Notes ?? "",
             CoverImageUrl = CoverImageUrl,
             CardsInCollection = CardsInCollection ?? false,
+            DeclaredBracket = Bracket is int b && CommanderBrackets.CanDeclare((CommanderBracket)b) ? (CommanderBracket)b : null,
             UpdatedAt = UpdatedAt,
             Cards = (Cards ?? []).Select(c => c.ToDeckCard()).ToList(),
         };
@@ -167,7 +169,9 @@ public sealed class SupabaseDeckStore(SupabaseClient supabase, Playgroup? group,
         // Sent even when null, so clearing the cover on an existing deck sticks.
         [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? CoverImageUrl,
         List<CardRow> Cards,
-        bool CardsInCollection);
+        bool CardsInCollection,
+        // Sent even when null, so going back to the estimate sticks.
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] int? Bracket);
 
     internal sealed record CardRow(string Name, int Quantity, DeckSection Section, Guid? ScryfallId, string? SetCode, string? CollectorNumber)
     {

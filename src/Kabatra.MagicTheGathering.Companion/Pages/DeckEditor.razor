@@ -142,7 +142,7 @@
 
                 @if (_bracket is { } bracket)
                 {
-                    <BracketPanel Assessment="bracket" />
+                    <BracketPanel Assessment="bracket" Deck="_deck" CanEdit="_canEdit" OnChange="Touch" />
                 }
 
                 @if (format.HasCommander)
