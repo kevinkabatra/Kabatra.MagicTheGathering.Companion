@@ -309,7 +309,37 @@ input[type="search"], input[type="email"] { min-width: 0; }
     overflow: hidden;
 }
 .deck-tile:hover { border-color: var(--accent); }
-.deck-tile .art { aspect-ratio: 16 / 7; background: var(--surface-2) center 25% / cover no-repeat; }
+.deck-tile .art { aspect-ratio: 16 / 7; background: var(--surface-2) center 25% / cover no-repeat; position: relative; }
+.deck-tile .art .bracket-badge { position: absolute; top: 0.45rem; right: 0.45rem; box-shadow: 0 1px 4px rgb(0 0 0 / 0.45); }
+
+/* ---------- Commander brackets ---------- */
+.bracket-badge {
+    --bracket: #64748b;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    background: var(--bracket);
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.4;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+.bracket-badge .num { font-variant-numeric: tabular-nums; }
+.bracket-badge .name { font-weight: 500; }
+.b1 { --bracket: #0e7490; }
+.b2 { --bracket: #15803d; }
+.b3 { --bracket: #b45309; }
+.b4 { --bracket: #b91c1c; }
+.b5 { --bracket: #7e22ce; }
+.bracket-panel { padding: 0.6rem 0.8rem; border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--bracket) 55%, var(--border)); background: var(--surface); display: grid; gap: 0.35rem; }
+.bracket-panel p { margin: 0; }
+.bracket-panel h4 { margin: 0.4rem 0 0; font-size: 0.85rem; }
+.bracket-panel .reasons, .bracket-panel ul.cards { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.2rem; font-size: 0.9rem; }
+.bracket-panel p.cards { font-size: 0.9rem; }
 .deck-tile .info { display: grid; gap: 0.15rem; padding: 0.6rem 0.75rem 0.75rem; min-width: 0; }
 .deck-tile .info > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

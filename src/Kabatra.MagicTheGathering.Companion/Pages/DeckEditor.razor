@@ -140,6 +140,11 @@
                     }
                 </div>
 
+                @if (_bracket is { } bracket)
+                {
+                    <BracketPanel Assessment="bracket" />
+                }
+
                 @if (format.HasCommander)
                 {
                     <DeckSectionList Deck="_deck" Resolving="_resolving" Title="@format.CommanderLabel" Lines="Lines(DeckSection.Commander)" Cards="_cards" Format="format"
@@ -219,6 +224,7 @@
     }
     private Dictionary<Guid, CardInfo> _cards = [];
     private IReadOnlyList<DeckIssue> _issues = [];
+    private BracketAssessment? _bracket;
     private CardInfo? _preview;
     private bool _dirty;
     private bool _saving;
@@ -361,7 +367,11 @@
         }
     }
 
-    private void Validate() => _issues = _deck is null ? [] : DeckValidator.Validate(_deck, _cards);
+    private void Validate()
+    {
+        _issues = _deck is null ? [] : DeckValidator.Validate(_deck, _cards);
+        _bracket = _deck is null ? null : CommanderBrackets.Assess(_deck);
+    }
 
     private void Touch()
     {

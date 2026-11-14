@@ -115,7 +115,9 @@
                         var record = PlayerStats.ForDeck(deck.Id, deck.Name, _games);
                         <li class="owned-deck">
                             <a class="deck-tile" href="decks/@deck.Id">
-                                <div class="art" style="@(deck.CoverImageUrl is null ? null : $"background-image:url('{deck.CoverImageUrl}')")"></div>
+                                <div class="art" style="@(deck.CoverImageUrl is null ? null : $"background-image:url('{deck.CoverImageUrl}')")">
+                                    <BracketBadge Deck="deck" />
+                                </div>
                                 <div class="info">
                                     <strong>@deck.Name</strong>
                                     <span class="muted">@deck.GetFormat().Name · @(deck.Count(DeckSection.Main) + deck.Count(DeckSection.Commander)) cards</span>
