@@ -1,0 +1,115 @@
+@* Shown after a first sign-in when the user has no profile yet: start a new one, or claim one someone made for them. *@
+@implements IDisposable
+@inject DeckLibrary Library
+
+<PageTitle>Welcome · Someone Else's Table</PageTitle>
+
+<div class="page sign-in first-sign-in">
+    <header class="page-head center">
+        <h1>Welcome!</h1>
+        <p class="muted">Signed in as @(Library.Email ?? "you"). One last step: your player profile.</p>
+    </header>
+
+    @if (Library.Onboarding is not { } state)
+    {
+        <section class="panel account">
+            <h2>Couldn't load your account</h2>
+            <ErrorMessage />
+            <div class="actions">
+                <button class="primary" disabled="@_busy" @onclick="RetryAsync">Try again</button>
+            </div>
+        </section>
+    }
+    else
+    {
+        <section class="panel account">
+            <h2>Has someone already made you a profile?</h2>
+            <p class="muted">
+                If a friend has been tracking your decks or games, ask them for your profile's invite code. Claiming it
+                brings your collection, decks, playgroups and play history with you.
+            </p>
+            @if (IsLocked(state))
+            {
+                <p class="notice error" role="alert">
+                    Too many wrong codes in a row. You can try again at @state.LockedUntil!.Value.ToLocalTime().ToString("t"),
+                    or start a new profile now.
+                </p>
+            }
+            <form class="inline-form" @onsubmit="ClaimAsync">
+                <input @bind="_code" placeholder="Invite code" maxlength="20" autocomplete="off" autocapitalize="characters"
+                       aria-label="Invite code" style="text-transform:uppercase" disabled="@IsLocked(state)" />
+                <button class="primary" type="submit" disabled="@(_busy || IsLocked(state) || string.IsNullOrWhiteSpace(_code))">Claim profile</button>
+            </form>
+            @if (_wrongCode && !IsLocked(state))
+            {
+                <p class="error" role="alert">
+                    That code doesn't match any profile waiting to be claimed.
+                    @Tries(state.AttemptsLeft) left before a @ProfileAccount.LockoutMinutes-minute wait.
+                </p>
+            }
+            <p class="muted small">
+                After @ProfileAccount.StrikesBeforeLockout wrong codes in a row you'll have to wait @ProfileAccount.LockoutMinutes minutes,
+                and after @ProfileAccount.StrikesBeforeBlock wrong codes in all this account is blocked.
+            </p>
+        </section>
+
+        <section class="panel account">
+            <h2>New here?</h2>
+            <p class="muted">Start a fresh profile. You can change its name later.</p>
+            <form class="inline-form" @onsubmit="CreateAsync">
+                <input @bind="_name" placeholder="Your name (or leave blank to use your account's)" maxlength="60" aria-label="Your name" />
+                <button type="submit" disabled="@_busy">Start a new profile</button>
+            </form>
+        </section>
+
+        <ErrorMessage />
+    }
+
+    <button class="link" @onclick="SignOutAsync">Sign out</button>
+</div>
+
+@code {
+    private string _code = "";
+    private string _name = "";
+    private bool _busy;
+    private bool _wrongCode;
+    private Timer? _unlockTimer;
+
+    protected override void OnInitialized() => WatchLockout();
+
+    private bool IsLocked(OnboardingState state) => state.LockedUntil > DateTimeOffset.UtcNow;
+
+    private static string Tries(int n) => n == 1 ? "1 try" : $"{n} tries";
+
+    private Task CreateAsync() => Busy(() => Library.CreateMyProfileAsync(_name));
+    private Task RetryAsync() => Busy(Library.RetryAccountAsync);
+    private Task SignOutAsync() => Busy(Library.SignOutAsync);
+
+    private Task ClaimAsync() => Busy(async () =>
+    {
+        var result = await Library.ClaimProfileAsync(_code);
+        _wrongCode = result?.Status == ClaimStatus.WrongCode;
+        if (result?.Status is ClaimStatus.WrongCode or ClaimStatus.Locked) _code = "";
+        WatchLockout();
+    });
+
+    /// <summary>Re-renders when a lockout ends, so the code box comes back on its own.</summary>
+    private void WatchLockout()
+    {
+        _unlockTimer?.Dispose();
+        _unlockTimer = null;
+        if (Library.Onboarding?.LockedUntil is not { } until || until <= DateTimeOffset.UtcNow) return;
+        var wait = until - DateTimeOffset.UtcNow + TimeSpan.FromSeconds(1);
+        _unlockTimer = new Timer(_ => InvokeAsync(StateHasChanged), null, wait, Timeout.InfiniteTimeSpan);
+    }
+
+    private async Task Busy(Func<Task> action)
+    {
+        _busy = true;
+        try { await action(); }
+        catch (DeckLibraryException) { /* shown via Library.Error */ }
+        finally { _busy = false; }
+    }
+
+    public void Dispose() => _unlockTimer?.Dispose();
+}

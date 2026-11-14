@@ -1,9 +1,39 @@
 ﻿@inherits LayoutComponentBase
+@implements IDisposable
 @inject DeckLibrary Library
+@inject SupabaseOptions SupabaseSettings
 
-@Body
+@if (SupabaseSettings.Problem is { } problem)
+{
+    <div class="page"><p class="notice error" role="alert">Sign-in is turned off: @problem</p></div>
+}
+
+@if (!Library.Ready)
+{
+    <p class="muted center">Loading…</p>
+}
+else if (Library.SignedIn && Library.MyProfile is null)
+{
+    @* Signed in for the first time: choose a profile before anything else. *@
+    <FirstSignInScreen />
+}
+else
+{
+    @if (Library.LocalDecksToMove > 0)
+    {
+        <LocalDecksOffer />
+    }
+    @Body
+}
 
 @code {
-    // Done here so a sign-in link works whichever page it lands on.
-    protected override Task OnInitializedAsync() => Library.InitializeAsync();
+    // Done here so a sign-in redirect works whichever page it lands on. Signing in is optional: guests use the app as is.
+    protected override Task OnInitializedAsync()
+    {
+        Library.Changed += OnChanged;
+        return Library.InitializeAsync();
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Library.Changed -= OnChanged;
 }

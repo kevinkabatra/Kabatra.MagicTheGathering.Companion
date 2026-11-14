@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -68,12 +69,13 @@ public sealed class SupabaseException(string message, int status) : Exception(me
 }
 
 /// <summary>
-/// A small client for Supabase's auth (GoTrue) and database (PostgREST) HTTP APIs: email sign-in,
+/// A small client for Supabase's auth (GoTrue) and database (PostgREST) HTTP APIs: OAuth sign-in,
 /// keeping the session fresh, and authenticated REST calls. Kept dependency-free so it runs in the browser.
 /// </summary>
 public sealed class SupabaseClient
 {
     private const string SessionKey = "mtg-companion.supabase-session";
+    private const string VerifierKey = "mtg-companion.supabase-pkce-verifier";
     private static readonly TimeSpan RefreshMargin = TimeSpan.FromMinutes(1);
 
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
@@ -102,12 +104,6 @@ public sealed class SupabaseClient
     public AuthSession? Session { get; private set; }
     public bool IsSignedIn => Session is not null;
 
-    /// <summary>
-    /// Set once the decks table turns out to have no owner_profile_id column (schema from before player profiles),
-    /// so decks keep working until the project's schema is updated.
-    /// </summary>
-    internal bool DecksLackOwnerProfile { get; set; }
-
     /// <summary>Raised when the user signs in or out.</summary>
     public event Action? SessionChanged;
 
@@ -122,54 +118,88 @@ public sealed class SupabaseClient
             Session = JsonSerializer.Deserialize<AuthSession>(json);
             await EnsureFreshAsync();
         }
-        catch (Exception e) when (e is JsonException or SupabaseException or HttpRequestException)
+        catch (Exception e) when (e is JsonException or SupabaseException)
         {
             await SetSessionAsync(null);
+        }
+        catch (HttpRequestException)
+        {
+            // Offline: keep the saved session, so the game still works; it's refreshed on the next request.
         }
     }
 
     /// <summary>
-    /// Emails a sign-in link (and a 6-digit code, if the email template includes it). Supabase creates
-    /// the account on first sign-in.
+    /// Starts signing in with an OAuth provider (e.g. "google" or "apple", as named in Supabase Auth).
+    /// Returns the address to send the browser to; the provider sends it back to <paramref name="redirectTo"/>
+    /// with a one-time code that <see cref="TryCompleteSignInAsync"/> exchanges for a session.
+    /// Uses PKCE, so the tokens never appear in the address bar or browser history.
     /// </summary>
-    public async Task SendSignInEmailAsync(string email, string redirectTo, CancellationToken ct = default)
+    public async Task<string> BeginSignInAsync(string provider, string redirectTo)
     {
-        var url = $"auth/v1/otp?redirect_to={Uri.EscapeDataString(redirectTo)}";
-        using var request = NewRequest(HttpMethod.Post, url, new { email = email.Trim(), create_user = true }, auth: false);
-        await SendAsync(request, ct);
-    }
+        if (!IsConfigured) throw new InvalidOperationException("Supabase isn't configured.");
+        if (string.IsNullOrWhiteSpace(provider)) throw new ArgumentException("A provider is required.", nameof(provider));
 
-    /// <summary>Signs in with the 6-digit code from the sign-in email.</summary>
-    public async Task VerifyEmailCodeAsync(string email, string code, CancellationToken ct = default)
-    {
-        using var request = NewRequest(HttpMethod.Post, "auth/v1/verify",
-            new { type = "email", email = email.Trim(), token = code.Trim() }, auth: false);
-        var response = await ReadAsync<TokenResponse>(request, ct);
-        await SetSessionAsync(ToSession(response));
+        var verifier = Base64Url(RandomNumberGenerator.GetBytes(32));
+        await _store.SetAsync(VerifierKey, verifier);
+        var challenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
+        return $"{_options.Url!.Trim().TrimEnd('/')}/auth/v1/authorize" +
+               $"?provider={Uri.EscapeDataString(provider.Trim().ToLowerInvariant())}" +
+               $"&redirect_to={Uri.EscapeDataString(redirectTo)}" +
+               $"&code_challenge={challenge}&code_challenge_method=s256";
     }
 
     /// <summary>
-    /// Finishes a sign-in-link login: Supabase redirects back with the tokens in the URL fragment.
-    /// Returns true if <paramref name="uri"/> carried a session (or an error, which is thrown).
+    /// Finishes an OAuth sign-in when the provider sends the browser back: exchanges the <c>code</c> in the
+    /// query for a session. Returns true if <paramref name="uri"/> was a sign-in redirect; a failed sign-in
+    /// (e.g. the user cancelled, or the account is blocked) throws.
     /// </summary>
-    public async Task<bool> TryCompleteSignInAsync(Uri uri)
+    public async Task<bool> TryCompleteSignInAsync(Uri uri, CancellationToken ct = default)
     {
-        var fragment = uri.Fragment.TrimStart('#');
-        if (fragment.Length == 0) return false;
-        var values = fragment.Split('&', StringSplitOptions.RemoveEmptyEntries)
-            .Select(p => p.Split('=', 2))
-            .ToDictionary(p => Uri.UnescapeDataString(p[0]), p => p.Length > 1 ? Uri.UnescapeDataString(p[1].Replace('+', ' ')) : "");
+        var values = ParseParameters(uri.Query.TrimStart('?'));
+        foreach (var (k, v) in ParseParameters(uri.Fragment.TrimStart('#'))) values.TryAdd(k, v);
 
-        if (values.TryGetValue("error_description", out var error))
-            throw new SupabaseException(error, 400);
-        if (!values.TryGetValue("access_token", out var access) || !values.TryGetValue("refresh_token", out var refresh))
-            return false;
+        if (values.TryGetValue("error_description", out var error) || values.TryGetValue("error", out error))
+        {
+            await _store.RemoveAsync(VerifierKey);
+            throw new SupabaseException(DescribeAuthError(error), 400);
+        }
 
-        var expiresIn = values.TryGetValue("expires_in", out var e) && int.TryParse(e, out var seconds) ? seconds : 3600;
-        var (userId, email) = ReadJwtUser(access);
-        await SetSessionAsync(new AuthSession(access, refresh, _clock.GetUtcNow().AddSeconds(expiresIn), userId, email));
-        return true;
+        if (values.TryGetValue("code", out var code))
+        {
+            var verifier = await _store.GetAsync(VerifierKey);
+            // A code we didn't ask for (another tab, or a ?code= that isn't ours): leave it alone.
+            if (verifier is null) return false;
+            await _store.RemoveAsync(VerifierKey);
+            using var request = NewRequest(HttpMethod.Post, "auth/v1/token?grant_type=pkce",
+                new { auth_code = code, code_verifier = verifier }, auth: false);
+            var response = await ReadAsync<TokenResponse>(request, ct);
+            await SetSessionAsync(ToSession(response));
+            return true;
+        }
+
+        return false;
     }
+
+    /// <summary>The query and fragment parameters Supabase Auth uses for sign-in redirects.</summary>
+    public static readonly IReadOnlyList<string> SignInParameters =
+        ["code", "error", "error_code", "error_description", "state"];
+
+    private static Dictionary<string, string> ParseParameters(string text) =>
+        text.Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Split('=', 2))
+            .GroupBy(p => Uri.UnescapeDataString(p[0]))
+            .ToDictionary(g => g.Key, g => g.First() is { Length: > 1 } p ? Uri.UnescapeDataString(p[1].Replace('+', ' ')) : "");
+
+    private static string DescribeAuthError(string error) =>
+        error.Contains("banned", StringComparison.OrdinalIgnoreCase)
+            ? BlockedMessage
+            : error.Equals("access_denied", StringComparison.OrdinalIgnoreCase) ? "Sign-in was cancelled." : error;
+
+    /// <summary>Shown when Supabase Auth refuses a banned account (see claim_profile in supabase/schema.sql).</summary>
+    public const string BlockedMessage = "This account has been blocked after too many wrong invite codes.";
+
+    private static string Base64Url(byte[] bytes) =>
+        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     public async Task SignOutAsync()
     {
@@ -206,6 +236,15 @@ public sealed class SupabaseClient
         return await ReadAsync<List<T>>(request, ct);
     }
 
+    /// <summary>Updates the matching rows with the given columns and returns them as stored.</summary>
+    public async Task<List<T>> PatchAsync<T>(string pathWithFilter, object changes, CancellationToken ct = default)
+    {
+        await EnsureFreshAsync();
+        using var request = NewRequest(HttpMethod.Patch, $"rest/v1/{pathWithFilter}", changes, auth: true);
+        request.Headers.Add("Prefer", "return=representation");
+        return await ReadAsync<List<T>>(request, ct);
+    }
+
     public async Task DeleteAsync(string pathWithFilter, CancellationToken ct = default)
     {
         await EnsureFreshAsync();
@@ -239,9 +278,11 @@ public sealed class SupabaseClient
             }
             catch (SupabaseException e) when (e.Status is 400 or 401 or 403)
             {
-                // Refresh token revoked or expired: the user has to sign in again.
+                // Refresh token revoked or expired, or the account was banned: the user has to sign in again.
                 await SetSessionAsync(null);
-                throw new SupabaseException("Your sign-in has expired. Please sign in again.", 401);
+                throw new SupabaseException(
+                    e.Message.Contains("banned", StringComparison.OrdinalIgnoreCase) ? BlockedMessage : "Your sign-in has expired. Please sign in again.",
+                    401);
             }
         }
         finally

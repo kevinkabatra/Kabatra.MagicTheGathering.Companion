@@ -1,0 +1,28 @@
+@* The signed-in player's own player code, to share with a playgroup admin who wants to add them. *@
+@inject DeckLibrary Library
+@inject IJSRuntime Js
+
+@if (Library.MyProfile is { PlayerCode.Length: > 0 } me)
+{
+    <div class="claim-code">
+        <span class="muted">Your player code</span>
+        <code>@me.PlayerCode</code>
+        <button class="icon" title="Copy your player code" aria-label="Copy your player code" @onclick="() => CopyAsync(me.PlayerCode)">⧉</button>
+        @if (_copied) { <span class="muted">Copied!</span> }
+    </div>
+    <p class="muted small">Give it to a playgroup's admin and they can add you, or ask them for the group's join code.</p>
+}
+
+@code {
+    private bool _copied;
+
+    private async Task CopyAsync(string text)
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            _copied = true;
+        }
+        catch (JSException) { }
+    }
+}

@@ -1,0 +1,32 @@
+@* One button per sign-in provider. Signing in goes through the provider and comes back to this page; there are no passwords. *@
+@inject DeckLibrary Library
+
+<div class="provider-buttons">
+    @foreach (var provider in Library.Providers)
+    {
+        <button class="provider-button" type="button" disabled="@_busy" @onclick="() => SignInAsync(provider)">
+            <ProviderIcon Provider="@provider.Id" />
+            <span>Continue with @provider.Label</span>
+        </button>
+    }
+</div>
+<p class="muted small">We never see or store your password.</p>
+<ErrorMessage />
+
+@code {
+    private bool _busy;
+
+    private async Task SignInAsync(AuthProvider provider)
+    {
+        _busy = true;
+        try
+        {
+            await Library.SignInAsync(provider);
+            // The browser is now leaving for the provider's page; keep the buttons disabled.
+        }
+        catch (DeckLibraryException)
+        {
+            _busy = false; // shown via Library.Error
+        }
+    }
+}

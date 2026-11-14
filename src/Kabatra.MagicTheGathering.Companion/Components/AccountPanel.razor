@@ -1,66 +1,43 @@
-@* Sign-in and playgroup controls for shared decks. Shows nothing when cloud sync isn't configured. *@
+@* Account controls: sign-in for guests; for signed-in players, pick, join or create a playgroup, and the admin's tools. *@
 @implements IDisposable
 @inject DeckLibrary Library
 @inject IJSRuntime Js
-@inject SupabaseOptions SupabaseSettings
 
-@if (SupabaseSettings.Problem is { } problem)
+@if (Library.Guest)
 {
-    <p class="notice error" role="alert">Shared decks are turned off: @problem Decks are being saved on this device for now.</p>
-}
-else if (!Library.CloudEnabled)
-{
-    <p class="notice">
-        Decks are saved on this device only. To share them with your playgroup, connect a Supabase project
-        (see the README).
-    </p>
-}
-else if (!Library.Ready)
-{
-    <p class="muted">Checking your sign-in…</p>
-}
-else if (!Library.SignedIn)
-{
-    <section class="panel account">
-        <h2>Sign in to share decks</h2>
-        <p class="muted">We'll email you a sign-in link. No password needed.</p>
-        @if (!_emailSent)
-        {
-            <form class="inline-form" @onsubmit="SendAsync">
-                <input type="email" required placeholder="you@example.com" autocomplete="email" @bind="_email" aria-label="Email" />
-                <button class="primary" type="submit" disabled="@_busy">Email me a link</button>
-            </form>
-        }
-        else
-        {
-            <p>Check <strong>@_email</strong> and tap the link. If the email has a 6-digit code, you can type it here instead
-               (handy if the link opens in a different browser).</p>
-            <form class="inline-form" @onsubmit="VerifyAsync">
-                <input inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="Code" @bind="_code" aria-label="Sign-in code" />
-                <button class="primary" type="submit" disabled="@(_busy || string.IsNullOrWhiteSpace(_code))">Sign in</button>
-                <button type="button" @onclick="() => _emailSent = false">Use another email</button>
-            </form>
-        }
-        <ErrorMessage />
-    </section>
+    @if (!Library.Configured)
+    {
+        <p class="notice">Decks are saved on this device.</p>
+    }
+    else
+    {
+        <section class="panel account">
+            <h2>Playing as a guest</h2>
+            <p class="muted">
+                Your decks are saved on this device. Sign in to share them with your playgroup and to get:
+            </p>
+            <SignInBenefits />
+            <SignInButtons />
+        </section>
+    }
 }
 else if (Library.Groups.Count == 0 || _managing)
 {
     <section class="panel account">
         <div class="row spread">
-            <h2>@(Library.Groups.Count == 0 ? "Join your playgroup" : "Playgroups")</h2>
+            <h2>@(Library.Groups.Count == 0 ? "Join a playgroup" : "Playgroups")</h2>
             @if (Library.Groups.Count > 0) { <button @onclick="() => _managing = false">Done</button> }
         </div>
-        <p class="muted">Decks are shared with everyone in a playgroup. Signed in as @Library.Email.</p>
+        <p class="muted">
+            Everyone in a playgroup sees its players, their decks and its play history. Signed in as
+            <a href="profiles/@Library.MyProfile?.Id">@Library.MyProfile?.Name</a>.
+        </p>
 
-        <label class="field">
-            <span>Your name in the group</span>
-            <input @bind="_displayName" placeholder="e.g. Sam" maxlength="60" />
-        </label>
+        <PlayerCode />
 
         <form class="inline-form" @onsubmit="JoinAsync">
-            <input @bind="_inviteCode" placeholder="Invite code" maxlength="8" aria-label="Invite code" style="text-transform:uppercase" />
-            <button class="primary" type="submit" disabled="@(_busy || string.IsNullOrWhiteSpace(_inviteCode))">Join</button>
+            <input @bind="_joinCode" placeholder="Playgroup join code" maxlength="20" aria-label="Playgroup join code" style="text-transform:uppercase" />
+            <button class="primary" type="submit" disabled="@(_busy || string.IsNullOrWhiteSpace(_joinCode))">Join</button>
         </form>
         <form class="inline-form" @onsubmit="CreateAsync">
             <input @bind="_groupName" placeholder="New playgroup name" maxlength="80" aria-label="New playgroup name" />
@@ -72,74 +49,177 @@ else if (Library.Groups.Count == 0 || _managing)
 }
 else if (Library.CurrentGroup is { } group)
 {
+    var admin = Library.IsAdmin(group);
     <section class="account-bar">
         <label class="field compact">
             <span>Playgroup</span>
-            <select value="@group.Id" @onchange="e => Library.SelectGroupAsync(Guid.Parse(e.Value!.ToString()!))">
+            <select value="@group.Id" @onchange="SelectAsync">
                 @foreach (var g in Library.Groups)
                 {
                     <option value="@g.Id">@g.Name</option>
                 }
             </select>
         </label>
-        <div class="invite">
-            <span class="muted">Invite code</span>
-            <code>@group.InviteCode</code>
-            <button class="icon" title="Copy invite code" aria-label="Copy invite code" @onclick="() => CopyAsync(group.InviteCode)">⧉</button>
-        </div>
+        <span class="muted small">
+            <a href="profiles/@Library.MyProfile?.Id">@Library.MyProfile?.Name</a>@(admin ? " · admin" : "")
+        </span>
         <div class="actions">
             <button @onclick="() => _managing = true">Join / create…</button>
-            @if (Library.IsCreator(group))
+            @if (admin)
             {
-                <button @onclick="ResetCodeAsync" title="Make a new code; the old one stops working">New code</button>
+                <button @onclick="ToggleAdminAsync" aria-expanded="@_adminOpen">Manage group</button>
             }
-            <button @onclick="LeaveAsync">Leave</button>
+            else
+            {
+                <button @onclick="LeaveAsync">Leave</button>
+            }
             <button @onclick="SignOutAsync">Sign out</button>
         </div>
-        @if (_copied) { <span class="muted">Copied!</span> }
         <ErrorMessage />
     </section>
+
+    @if (admin && _adminOpen)
+    {
+        <section class="panel account">
+            <div class="row spread">
+                <h2>Manage @group.Name</h2>
+                <button @onclick="() => _adminOpen = false">Done</button>
+            </div>
+
+            <form class="inline-form" @onsubmit="RenameAsync">
+                <input @bind="_rename" maxlength="80" aria-label="Playgroup name" />
+                <button type="submit" disabled="@(_busy || string.IsNullOrWhiteSpace(_rename) || _rename.Trim() == group.Name)">Rename</button>
+            </form>
+
+            <div class="claim-code">
+                <span class="muted">Join code</span>
+                @if (_joinCodeShown is null)
+                {
+                    <button @onclick="() => LoadJoinCodeAsync(false)" disabled="@_busy">Show</button>
+                }
+                else
+                {
+                    <code>@_joinCodeShown</code>
+                    <button class="icon" title="Copy join code" aria-label="Copy join code" @onclick="() => CopyAsync(_joinCodeShown)">⧉</button>
+                    <button @onclick="ResetJoinCodeAsync" disabled="@_busy" title="Make a new code; the old one stops working">New code</button>
+                }
+                @if (_copied) { <span class="muted">Copied!</span> }
+            </div>
+            <p class="muted small">Anyone with the join code can add themselves. To add someone yourself, use their player code on the Players page.</p>
+
+            <form class="inline-form" @onsubmit="TransferAsync">
+                <select @bind="_newAdmin" aria-label="New admin">
+                    <option value="">Hand the group over to…</option>
+                    @foreach (var p in _members.Where(p => p.IsClaimed && p.Id != Library.MyProfile?.Id))
+                    {
+                        <option value="@p.Id">@p.Name</option>
+                    }
+                </select>
+                <button type="submit" disabled="@(_busy || string.IsNullOrEmpty(_newAdmin))">Hand over</button>
+            </form>
+            @if (!_members.Any(p => p.IsClaimed && p.Id != Library.MyProfile?.Id))
+            {
+                <p class="muted small">Only players who have signed in can run a group. Nobody else in this group has yet.</p>
+            }
+
+            <div class="actions">
+                <button class="danger" @onclick="DeleteAsync" disabled="@_busy">Delete playgroup</button>
+            </div>
+            <ErrorMessage />
+        </section>
+    }
 }
 
+<BackupPanel />
+
 @code {
-    private string _email = "";
-    private string _code = "";
-    private string _displayName = "";
-    private string _inviteCode = "";
+    private string _joinCode = "";
     private string _groupName = "";
-    private bool _emailSent;
+    private string _rename = "";
+    private string _newAdmin = "";
+    private string? _joinCodeShown;
+    private List<PlayerProfile> _members = [];
     private bool _busy;
     private bool _managing;
+    private bool _adminOpen;
     private bool _copied;
 
-    protected override void OnInitialized()
-    {
-        Library.Changed += OnChanged;
-        _displayName = Library.DisplayName ?? "";
-    }
+    protected override void OnInitialized() => Library.Changed += OnChanged;
 
     private void OnChanged() => InvokeAsync(StateHasChanged);
     public void Dispose() => Library.Changed -= OnChanged;
 
-    private Task SendAsync() => Busy(async () => { await Library.SendSignInEmailAsync(_email); _emailSent = true; });
-    private Task VerifyAsync() => Busy(() => Library.VerifyCodeAsync(_email, _code));
-    private Task JoinAsync() => Busy(async () => { await Library.JoinGroupAsync(_inviteCode, _displayName); _managing = false; _inviteCode = ""; });
-    private Task CreateAsync() => Busy(async () => { await Library.CreateGroupAsync(_groupName, _displayName); _managing = false; _groupName = ""; });
+    private Task JoinAsync() => Busy(async () => { await Library.JoinGroupAsync(_joinCode); _managing = false; _joinCode = ""; });
+    private Task CreateAsync() => Busy(async () => { await Library.CreateGroupAsync(_groupName); _managing = false; _groupName = ""; });
     private Task SignOutAsync() => Busy(() => { _managing = false; return Library.SignOutAsync(); });
-    private Task ResetCodeAsync() => Busy(async () =>
+
+    private async Task SelectAsync(ChangeEventArgs e)
     {
-        if (await Js.InvokeAsync<bool>("confirm", "Make a new invite code? The old code will stop working (people already in the group stay in)."))
-            await Library.ResetInviteCodeAsync();
+        CloseAdmin();
+        await Library.SelectGroupAsync(Guid.Parse(e.Value!.ToString()!));
+    }
+
+    private async Task ToggleAdminAsync()
+    {
+        if (_adminOpen) { CloseAdmin(); return; }
+        _adminOpen = true;
+        _rename = Library.CurrentGroup?.Name ?? "";
+        try
+        {
+            _members = Library.Profiles is { } profiles ? (await profiles.ListAsync()).ToList() : [];
+        }
+        catch (Exception e) when (e is SupabaseException or HttpRequestException)
+        {
+            Library.Error = CloudErrors.Describe("Couldn't load the group's players", e);
+        }
+    }
+
+    private void CloseAdmin()
+    {
+        _adminOpen = false;
+        _joinCodeShown = null;
+        _copied = false;
+        _newAdmin = "";
+    }
+
+    private Task RenameAsync() => Busy(() => Library.RenameGroupAsync(_rename));
+
+    private Task LoadJoinCodeAsync(bool reset) => Busy(async () => { _joinCodeShown = await Library.GetJoinCodeAsync(reset); _copied = false; });
+
+    private async Task ResetJoinCodeAsync()
+    {
+        if (await Js.InvokeAsync<bool>("confirm", "Make a new join code? The old code stops working (people already in the group stay in)."))
+            await LoadJoinCodeAsync(true);
+    }
+
+    private Task TransferAsync() => Busy(async () =>
+    {
+        var target = _members.FirstOrDefault(p => p.Id.ToString() == _newAdmin);
+        if (target is null) return;
+        if (!await Js.InvokeAsync<bool>("confirm", $"Hand {Library.CurrentGroup?.Name} over to {target.Name}? They become its admin and you become a regular member."))
+            return;
+        await Library.TransferGroupAsync(target.Id);
+        CloseAdmin();
+    });
+
+    private Task DeleteAsync() => Busy(async () =>
+    {
+        if (!await Js.InvokeAsync<bool>("confirm",
+                $"Delete {Library.CurrentGroup?.Name}? Its play history is deleted too. Players and their decks stay. This can't be undone."))
+            return;
+        await Library.DeleteGroupAsync();
+        CloseAdmin();
     });
 
     private Task LeaveAsync() => Busy(async () =>
     {
-        if (await Js.InvokeAsync<bool>("confirm", $"Leave {Library.CurrentGroup?.Name}? You'll need the invite code to rejoin."))
+        if (await Js.InvokeAsync<bool>("confirm", $"Leave {Library.CurrentGroup?.Name}? You'll need a join code, or the admin, to get back in."))
             await Library.LeaveGroupAsync();
     });
 
-    private async Task CopyAsync(string text)
+    private async Task CopyAsync(string? text)
     {
+        if (text is null) return;
         try
         {
             await Js.InvokeVoidAsync("navigator.clipboard.writeText", text);

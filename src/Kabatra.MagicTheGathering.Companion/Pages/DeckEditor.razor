@@ -6,7 +6,7 @@
 @inject NavigationManager Nav
 @inject IJSRuntime Js
 
-<PageTitle>@(string.IsNullOrWhiteSpace(_deck?.Name) ? "Deck" : _deck.Name) · MTG Companion</PageTitle>
+<PageTitle>@(string.IsNullOrWhiteSpace(_deck?.Name) ? "Deck" : _deck.Name) · Someone Else's Table</PageTitle>
 
 <div class="page wide">
     <header class="page-head">
@@ -38,16 +38,20 @@
                     <div class="field-row">
                         <label class="field grow">
                             <span>Owner <span class="small">(anyone can play it)</span></span>
-                            @if (_profiles.Count > 0)
+                            @if (_canEdit && Owners().Count > 1)
                             {
                                 <select value="@(_deck.OwnerProfileId?.ToString() ?? "")" @onchange="PickOwner" aria-label="Owner">
-                                    @foreach (var profile in _profiles) { <option value="@profile.Id">@profile.Name</option> }
-                                    <option value="">Someone without a profile…</option>
+                                    @foreach (var profile in Owners()) { <option value="@profile.Id">@profile.Name</option> }
                                 </select>
                             }
-                            @if (_deck.OwnerProfileId is null)
+                            else if (Library.Guest)
                             {
+                                @* Guests have no profiles: the owner is just a name, as before sign-in existed. *@
                                 <input @bind="_deck.OwnerName" @bind:after="Touch" placeholder="Who owns it" maxlength="60" aria-label="Owner name" />
+                            }
+                            else
+                            {
+                                <input value="@_deck.OwnerName" readonly aria-label="Owner" />
                             }
                         </label>
                         <label class="field grow">
@@ -75,8 +79,15 @@
                     </span>
                     <div class="actions">
                         <button @onclick="() => _showExport = true">Export</button>
-                        @if (Id is not null) { <button @onclick="DeleteAsync">Delete</button> }
-                        <button class="primary" @onclick="SaveAsync" disabled="@(_saving || string.IsNullOrWhiteSpace(_deck.Name))">@(_saving ? "Saving…" : "Save")</button>
+                        @if (_canEdit)
+                        {
+                            @if (Id is not null) { <button @onclick="DeleteAsync">Delete</button> }
+                            <button class="primary" @onclick="SaveAsync" disabled="@(_saving || string.IsNullOrWhiteSpace(_deck.Name))">@(_saving ? "Saving…" : "Save")</button>
+                        }
+                        else
+                        {
+                            <span class="muted small">Only @(string.IsNullOrWhiteSpace(_deck.OwnerName) ? "its owner" : _deck.OwnerName) can change this deck.</span>
+                        }
                     </div>
                 </div>
                 <ErrorMessage Message="@_saveError" />
@@ -177,6 +188,15 @@
 
     private Deck? _deck;
     private List<PlayerProfile> _profiles = [];
+    private bool _canEdit = true;
+
+    /// <summary>The profiles this user can give a deck to: their own, and unclaimed ones they look after.</summary>
+    private List<PlayerProfile> Owners()
+    {
+        var owners = _profiles.Where(Library.CanManage).ToList();
+        if (Library.MyProfile is { } me && owners.All(p => p.Id != me.Id)) owners.Insert(0, me);
+        return owners;
+    }
     private Dictionary<Guid, CardInfo> _cards = [];
     private IReadOnlyList<DeckIssue> _issues = [];
     private CardInfo? _preview;
@@ -205,14 +225,13 @@
                 profilesLoaded = true;
             }
         }
-        catch (Exception e) when (e is SupabaseException or HttpRequestException) { } // owner falls back to free text
+        catch (Exception e) when (e is SupabaseException or HttpRequestException) { } // you can still own it yourself
 
         if (Id is null)
         {
-            // The owner is the profile it was started from, else the profile matching your name, else free text.
-            var owner = _profiles.FirstOrDefault(p => p.Id == Owner)
-                ?? _profiles.FirstOrDefault(p => string.Equals(p.Name, Library.DisplayName, StringComparison.CurrentCultureIgnoreCase));
-            _deck = new Deck { OwnerName = owner?.Name ?? Library.DisplayName ?? "", OwnerProfileId = owner?.Id };
+            // The owner is the profile it was started from, if you look after that profile; otherwise you.
+            var owner = Owners().FirstOrDefault(p => p.Id == Owner) ?? Library.MyProfile;
+            _deck = new Deck { OwnerName = owner?.Name ?? "", OwnerProfileId = owner?.Id };
         }
         else
         {
@@ -228,11 +247,12 @@
             }
         }
 
-        if (profilesLoaded && _deck.OwnerProfileId is { } ownerId)
+        if (_deck.OwnerProfileId is { } ownerId)
         {
-            // Show the owner's current name; a deleted owner's deck keeps the name as free text.
-            if (_profiles.FirstOrDefault(p => p.Id == ownerId) is { } owner) _deck.OwnerName = owner.Name;
-            else _deck.OwnerProfileId = null;
+            var owner = _profiles.FirstOrDefault(p => p.Id == ownerId) ?? (Library.MyProfile?.Id == ownerId ? Library.MyProfile : null);
+            // A deck whose owner isn't in this group can still be opened; then only its owner (or their profile's
+            // admin) can change it, which the database checks on save too.
+            _canEdit = owner is not null ? Library.CanManage(owner) : !profilesLoaded;
         }
 
         _leaveGuard = Nav.RegisterLocationChangingHandler(async ctx =>
@@ -314,10 +334,9 @@
 
     private void PickOwner(ChangeEventArgs e)
     {
-        var profile = _profiles.FirstOrDefault(p => p.Id.ToString() == e.Value?.ToString());
-        if (profile is null && _deck!.OwnerProfileId is not null) _deck.OwnerName = ""; // typing a name next
-        _deck!.OwnerProfileId = profile?.Id;
-        if (profile is not null) _deck.OwnerName = profile.Name;
+        if (Owners().FirstOrDefault(p => p.Id.ToString() == e.Value?.ToString()) is not { } profile) return;
+        _deck!.OwnerProfileId = profile.Id;
+        _deck.OwnerName = profile.Name;
         Touch();
     }
 

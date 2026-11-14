@@ -1,4 +1,4 @@
-# MTG Companion
+# Someone Else's Table
 
 A table-side helper for playing Magic: The Gathering with friends. It runs in any web browser — put it on a phone or tablet in the middle of the table and everyone can see and tap their own life total.
 
@@ -22,10 +22,12 @@ Built in C# with Blazor WebAssembly (.NET 8), so the whole app runs in the brows
 - **Decks:** build decks with card search from [Scryfall](https://scryfall.com), import and export Arena / MTGO / Moxfield lists, and check legality (deck size, copy limits, bans, commander rules and color identity) for Commander, Standard, Pioneer, Modern, Legacy, Vintage, Pauper, Brawl and Oathbreaker
 - **Scan cards:** point the camera at a physical card (or pick a photo) to add it to a deck. The card's name, set and collector number are read on the device with [Tesseract.js](https://tesseract.projectnaptha.com/), so photos never leave the phone, and matched to the exact printing on Scryfall
 - **Prebuilt decks:** import any official precon (Commander decks, Duel Decks, Challenger Decks, Starter Kits and more) in one tap, with the exact printings from the box. Deck lists come from [MTGJSON](https://mtgjson.com)
-- **Shared playgroup decks:** sign in with an email link, join your playgroup with an invite code, and everyone sees the group's decks, players and play history (needs a free Supabase project; without one, they're saved on the device)
+- **No account needed:** games, deck building, card search, scanning, list import/export, legality checks and prebuilt decks all work without signing in. A guest's decks are saved on the device
+- **Optional sign-in with Google or Apple:** adds a player profile with your collection, playgroups, shared decks and play history, on every device. No passwords to remember. The first time you sign in, you can move the decks you made as a guest to your profile
+- **Playgroups** (signed in): create as many as you like and share them with a join code, or add people by their player code. Everyone in a group sees its players, their decks and its play history. The group's admin (its creator, until they hand it over) renames, deletes and manages who's in it
 - **Decks at the table:** pick each player's deck when starting a game; the format follows the decks and the player's card shows the commander's art
-- **Player profiles:** a profile for each person in the playgroup, with the cards they own (search, scan or paste a list) and what their collection is worth, plus the decks they own. Anyone can still play anyone's deck. Profiles don't need an account, so friends without one can have one too
-- **Play history:** pick each seat's profile when starting a game, and the game is saved when you start the next one: who played which deck, and who won. Each profile shows games, wins and win rate, overall and per deck, and each deck shows its record across everyone who played it
+- **Player profiles** (signed in): everyone who signs in gets a profile, with the cards they own (search, scan or paste a list) and what their collection is worth, plus the decks they own. Anyone can still play anyone's deck. Friends without an account can have a profile too; whoever made it gives them its invite code, and they claim it the first time they sign in. Wrong invite codes are limited: 3 in a row means a 15-minute wait, and 10 in all blocks the account
+- **Play history** (signed in): pick each seat's profile when starting a game, and the game is saved when you start the next one: who played which deck, and who won. Each profile shows games, wins and win rate, overall and per deck, and each deck shows its record across everyone who played it
 
 ## Run it locally
 
@@ -43,29 +45,41 @@ Run the tests:
 dotnet test
 ```
 
-## Shared decks with Supabase (optional)
+## Set up Supabase (for sign-in)
 
-Without this, everything works but decks, player profiles and play history stay in the browser they were made in.
+Signing in is optional. Without Supabase, everyone uses the app as a guest and decks stay on the device. With a free [Supabase](https://supabase.com) project, people can sign in, and their profiles, playgroups, decks and play history are kept there. Supabase Auth handles sign-in.
 
 1. Create a free project at [supabase.com](https://supabase.com).
-2. In the project's **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql). It creates the `playgroups`, `playgroup_members`, `decks`, `player_profiles` and `game_records` tables, row-level security so only members can see a group's data, and the `create_playgroup` / `join_playgroup` functions.
+2. In the project's **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql). It creates:
+   - `player_profiles`: one per signed-in user, plus unclaimed profiles for friends without an account
+   - `playgroups` and `playgroup_profiles`: playgroups, each with one admin, and their profiles (many-to-many)
+   - `decks`: decks owned by a profile, visible in every playgroup that profile is in
+   - `game_records`: each playgroup's play history
+   - `claim_attempts`: rate limiting for profile invite codes
 
-   **Already set up from an older version?** Run `schema.sql` again after updating: it only adds what's missing and keeps your decks. Until you do, decks keep working but the Players page asks for the update.
+   It also sets up row-level security and the functions the app calls (`create_my_profile`, `claim_profile`, `create_playgroup`, `join_playgroup`, and others).
+
+   **Upgrading from the version with email sign-in?** The data model changed. After deploying, run [`supabase/wipe.sql`](supabase/wipe.sql) once, then `schema.sql`. **The wipe permanently deletes every player profile, playgroup, deck and recorded game.** Sign-in accounts are kept.
 3. In **Authentication → URL Configuration**, set **Site URL** to the live site and add these **Redirect URLs**:
    - `https://kabatra-mtg-companion.pages.dev/**`
    - `http://localhost:5243/**` (for running locally)
-4. Optional but handy on phones: in **Authentication → Email Templates → Magic Link**, add `{{ .Token }}` to the email so it includes a 6-digit code. The app accepts the code too, which helps when the link opens in a different browser than the app.
+4. Turn on the sign-in providers under **Authentication → Sign In / Providers**. Each provider's page in Supabase shows the **Callback URL** (`https://<project-ref>.supabase.co/auth/v1/callback`) to give the provider.
+   - **Google:** in the [Google Cloud console](https://console.cloud.google.com/apis/credentials), set up the OAuth consent screen, then create an **OAuth client ID** of type *Web application*. Add the Supabase callback URL under **Authorized redirect URIs**. Paste the client ID and secret into Supabase's Google provider.
+   - **Apple:** needs a paid [Apple Developer](https://developer.apple.com) account. Create a **Services ID** with *Sign in with Apple* turned on, and set its return URL to the Supabase callback URL. Then create a **Sign in with Apple key** (.p8). In Supabase's Apple provider, enter the Services ID as the client ID and generate the secret from the key, Team ID and Key ID. Apple secrets expire after at most six months, so set a reminder to make a new one.
+   - **Other providers:** the app never handles passwords, but any OAuth provider Supabase supports can be added. Turn it on in Supabase, then list its id in `appsettings.json` (below), for example `"Providers": ["google", "apple", "github"]`.
+   - Turn **Email** sign-in off, since the app no longer offers it.
 5. In **Settings → API Keys**, copy the **publishable** key (it starts with `sb_publishable_`). The **Project URL** is in the dashboard's **Connect** dialog, or is `https://<project-ref>.supabase.co`. Put both into `src/Kabatra.MagicTheGathering.Companion/wwwroot/appsettings.json`:
 
    ```json
-   { "Supabase": { "Url": "https://YOUR-PROJECT.supabase.co", "PublishableKey": "sb_publishable_..." } }
+   {
+     "Supabase": { "Url": "https://YOUR-PROJECT.supabase.co", "PublishableKey": "sb_publishable_..." },
+     "Auth": { "Providers": ["google", "apple"] }
+   }
    ```
 
    The publishable key is meant to be public; the database's row-level security is what protects the data. **Never use a secret key** (`sb_secret_...`) or the legacy `service_role` key here: they bypass row-level security, and the app refuses to use them.
 
    *Legacy keys:* Supabase is retiring the old `anon` / `service_role` keys by the end of 2026. Until then, an `anon` key also works, either in `PublishableKey` or in the old `AnonKey` setting. Once the app uses the publishable key, you can disable the legacy keys under **Settings → API Keys**.
-
-Supabase's built-in email sender is rate-limited (a few emails an hour), which is fine for a playgroup. For more, connect your own SMTP server under **Authentication → Emails**.
 
 ## Card data
 
@@ -101,8 +115,8 @@ Until the secrets are added, the workflow builds the app but skips the deploy. A
 
 ## Legal
 
-Card data and images are provided by [Scryfall](https://scryfall.com). MTG Companion is not produced by or endorsed by Scryfall.
+Card data and images are provided by [Scryfall](https://scryfall.com). Someone Else's Table is not produced by or endorsed by Scryfall.
 
-MTG Companion is unofficial Fan Content permitted under the Wizards of the Coast Fan Content Policy. Not approved or endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. © Wizards of the Coast LLC.
+Someone Else's Table is unofficial Fan Content permitted under the Wizards of the Coast Fan Content Policy. Not approved or endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. © Wizards of the Coast LLC.
 
 Code is released under the [MIT License](LICENSE).

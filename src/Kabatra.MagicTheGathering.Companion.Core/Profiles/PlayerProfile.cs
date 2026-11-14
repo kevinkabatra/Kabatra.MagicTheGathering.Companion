@@ -5,13 +5,32 @@ using Kabatra.MagicTheGathering.Companion.Core.Decks;
 namespace Kabatra.MagicTheGathering.Companion.Core.Profiles;
 
 /// <summary>
-/// Someone in the playgroup: the cards they own, the decks they built, and the games they've played.
-/// Profiles aren't tied to sign-in accounts, so a friend without an account can still have one.
+/// A player: the cards they own, the decks they built, and the games they've played. Every signed-in user
+/// has one. A friend without an account can have one too (unclaimed), made and looked after by a signed-in
+/// user until the friend signs in and claims it with its claim code.
 /// </summary>
 public sealed class PlayerProfile
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "";
+
+    /// <summary>The signed-in user this profile belongs to, or null while it's unclaimed.</summary>
+    public Guid? UserId { get; set; }
+
+    /// <summary>The signed-in user who made it; they look after it while it's unclaimed.</summary>
+    public Guid? CreatedBy { get; set; }
+
+    /// <summary>Shareable code a playgroup admin uses to add this profile to a group.</summary>
+    public string PlayerCode { get; set; } = "";
+
+    [JsonIgnore] public bool IsClaimed => UserId is not null;
+
+    /// <summary>
+    /// Whether <paramref name="userId"/> may rename or delete this profile and edit its collection and decks:
+    /// it's theirs, or it's unclaimed and they made it. The database enforces the same rule.
+    /// </summary>
+    public bool CanBeManagedBy(Guid? userId) =>
+        userId is { } me && (UserId == me || (UserId is null && CreatedBy == me));
 
     /// <summary>
     /// Every card the player owns, one line per printing. <see cref="DeckCard.Section"/> isn't used here;

@@ -8,7 +8,7 @@ public static class CloudErrors
     public static string Describe(string whatFailed, Exception e) => e switch
     {
         SupabaseException { NeedsSchemaUpdate: true } =>
-            "Player profiles and play history need a database update. In your Supabase project's SQL Editor, run supabase/schema.sql again (it keeps your existing decks).",
+            "The database needs updating. In your Supabase project's SQL Editor, run supabase/wipe.sql (once, when upgrading from email sign-in) and then supabase/schema.sql.",
         HttpRequestException => $"{whatFailed}: couldn't reach the server. Check your connection and try again.",
         _ => $"{whatFailed}: {e.Message}",
     };

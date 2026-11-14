@@ -3,7 +3,7 @@ using Kabatra.MagicTheGathering.Companion.Core.Cloud;
 
 namespace Kabatra.MagicTheGathering.Companion.Core.History;
 
-/// <summary>Where finished games are kept: a playgroup in Supabase, or this device.</summary>
+/// <summary>Where finished games are kept.</summary>
 public interface IGameHistoryStore
 {
     /// <summary>The most recent games, newest first.</summary>
@@ -13,28 +13,6 @@ public interface IGameHistoryStore
     Task SaveAsync(GameRecord record, CancellationToken ct = default);
 
     Task DeleteAsync(Guid id, CancellationToken ct = default);
-}
-
-/// <summary>Play history saved in this browser only, for when cloud sync isn't set up.</summary>
-public sealed class LocalGameHistoryStore(IKeyValueStore store) : IGameHistoryStore
-{
-    /// <summary>Oldest games are dropped past this, so localStorage doesn't fill up.</summary>
-    public const int MaxGames = 1000;
-
-    private readonly LocalJsonList<GameRecord> _list = new(store, "mtg-companion.game-history", g => g.Id);
-
-    public async Task<IReadOnlyList<GameRecord>> ListAsync(CancellationToken ct = default) =>
-        (await _list.LoadAsync()).OrderByDescending(g => g.EndedAt).ToList();
-
-    public async Task SaveAsync(GameRecord record, CancellationToken ct = default)
-    {
-        var games = await _list.LoadAsync();
-        games.RemoveAll(g => g.Id == record.Id);
-        games.Add(record.Clone());
-        await _list.WriteAsync(games.OrderByDescending(g => g.EndedAt).Take(MaxGames).ToList());
-    }
-
-    public Task DeleteAsync(Guid id, CancellationToken ct = default) => _list.DeleteAsync(id);
 }
 
 /// <summary>A playgroup's play history, stored in the Supabase "game_records" table.</summary>

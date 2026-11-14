@@ -10,7 +10,7 @@ namespace Kabatra.MagicTheGathering.Companion.Tests;
 public class ProfileTests
 {
     private static readonly SupabaseOptions Options = new("https://example.supabase.co", "sb_publishable_test123");
-    private static readonly Playgroup Group = new(Guid.NewGuid(), "Friday Night", "ABCD1234", null);
+    private static readonly Playgroup Group = new(Guid.NewGuid(), "Friday Night", Guid.NewGuid());
 
     // ----- Collection -----
 
@@ -159,89 +159,91 @@ public class ProfileTests
 
     // ----- Stores -----
 
-    [Fact]
-    public async Task LocalProfileStore_SavesListsAndDeletes()
-    {
-        var store = new LocalProfileStore(new MemoryKeyValueStore());
-        var profile = new PlayerProfile { Name = "  Sam " };
-        profile.AddToCollection(TestCards.SolRing);
-
-        await store.SaveAsync(profile);
-        await store.SaveAsync(new PlayerProfile { Name = "Alex" });
-        profile.Collection.Clear(); // the store keeps its own copy
-
-        var loaded = await store.GetAsync(profile.Id);
-        Assert.Equal("Sam", loaded!.Name);
-        Assert.Equal(TestCards.SolRing.Id, loaded.Collection.Single().ScryfallId);
-        Assert.Equal(["Alex", "Sam"], (await store.ListAsync()).Select(p => p.Name));
-
-        await store.DeleteAsync(profile.Id);
-        Assert.Single(await store.ListAsync());
-    }
+    private const string ProfileJson = """
+        { "id": "6f0c5b8e-0000-4000-8000-000000000001", "name": "Sam", "user_id": null,
+          "created_by": "6f0c5b8e-0000-4000-8000-0000000000aa", "player_code": "PLAY2345",
+          "collection": [{ "name": "Krenko, Mob Boss", "quantity": 2, "section": "main" }],
+          "updated_at": "2026-01-01T00:00:00+00:00", "playgroup_profiles": [{ "playgroup_id": "6f0c5b8e-0000-4000-8000-0000000000bb" }] }
+        """;
 
     [Fact]
-    public async Task LocalGameHistoryStore_ListsNewestFirst_AndReplacesTheSameGame()
+    public async Task SupabaseProfileStore_ListsTheGroupsProfilesThroughTheMembershipTable()
     {
-        var store = new LocalGameHistoryStore(new MemoryKeyValueStore());
-        var start = DateTimeOffset.Parse("2026-11-01T19:00:00Z");
-        var first = new GameRecord { Id = Guid.NewGuid(), Format = "Commander", EndedAt = start };
-        var second = new GameRecord { Id = Guid.NewGuid(), Format = "Commander", EndedAt = start.AddHours(1) };
-
-        await store.SaveAsync(first);
-        await store.SaveAsync(second);
-        first.Turns = 9;
-        await store.SaveAsync(first);
-
-        var games = await store.ListAsync();
-        Assert.Equal([second.Id, first.Id], games.Select(g => g.Id));
-        Assert.Equal(9, games[1].Turns);
-    }
-
-    [Fact]
-    public async Task SupabaseProfileStore_UpsertsCollectionAsJson()
-    {
-        string? sent = null;
-        var handler = new FakeHandler((request, body) =>
-        {
-            if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath == "/rest/v1/player_profiles")
-            {
-                sent = body;
-                return FakeHandler.Json($"[{body![..^1]},\"updated_at\":\"2026-01-01T00:00:00+00:00\"}}]");
-            }
-            return FakeHandler.Json("[]");
-        });
+        var handler = new FakeHandler((_, _) => FakeHandler.Json($"[{ProfileJson}]"));
         var store = new SupabaseProfileStore(new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore()), Group);
-        var profile = new PlayerProfile { Name = "Sam" };
+
+        var profile = (await store.ListAsync()).Single();
+
+        var query = Uri.UnescapeDataString(handler.Requests.Single().Request.RequestUri!.Query);
+        Assert.Contains("playgroup_profiles!inner(playgroup_id)", query);
+        Assert.Contains($"playgroup_profiles.playgroup_id=eq.{Group.Id}", query);
+        Assert.DoesNotContain("claim_code", query); // only the profile's admin may read it, through profile_claim_code()
+        Assert.Equal("Sam", profile.Name);
+        Assert.False(profile.IsClaimed);
+        Assert.Equal("PLAY2345", profile.PlayerCode);
+        Assert.Equal(2, profile.CardCount);
+    }
+
+    [Fact]
+    public async Task SupabaseProfileStore_SavePatchesOnlyTheNameAndCollection()
+    {
+        var handler = new FakeHandler((_, _) => FakeHandler.Json($"[{ProfileJson}]"));
+        var store = new SupabaseProfileStore(new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore()), Group);
+        var profile = new PlayerProfile { Id = Guid.NewGuid(), Name = " Sam ", UserId = Guid.NewGuid(), PlayerCode = "X" };
         profile.AddToCollection(TestCards.Krenko, 2);
 
         var saved = await store.SaveAsync(profile);
 
-        Assert.Contains($"\"playgroup_id\":\"{Group.Id}\"", sent);
-        Assert.Contains("\"collection\":[{\"name\":\"Krenko, Mob Boss\",\"quantity\":2", sent);
-        Assert.DoesNotContain("updated_at", sent);
+        var (request, body) = handler.Requests.Single();
+        Assert.Equal(HttpMethod.Patch, request.Method);
+        Assert.Contains($"id=eq.{profile.Id}", request.RequestUri!.Query);
+        Assert.Contains("\"name\":\"Sam\"", body);
+        Assert.Contains("\"collection\":[{\"name\":\"Krenko, Mob Boss\",\"quantity\":2", body);
+        // Ownership is never sent from the browser; the database decides it.
+        Assert.DoesNotContain("user_id", body);
+        Assert.DoesNotContain("created_by", body);
+        Assert.DoesNotContain("playgroup_id", body);
         Assert.Equal(2, saved.CardCount);
     }
 
     [Fact]
-    public async Task SupabaseDeckStore_SendsTheOwnerProfile_EvenWhenCleared()
+    public async Task SupabaseProfileStore_SavingAProfileYouCantChangeFails()
     {
-        var bodies = new List<string>();
-        var handler = new FakeHandler((request, body) =>
-        {
-            bodies.Add(body ?? "");
-            return FakeHandler.Json($"[{body}]");
-        });
-        var store = new SupabaseDeckStore(new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore()), Group);
-        var owner = Guid.NewGuid();
-        var deck = new Deck { Name = "Burn", OwnerName = "Sam", OwnerProfileId = owner };
+        // Row-level security filters out rows the user may not update, so PostgREST returns none.
+        var handler = new FakeHandler((_, _) => FakeHandler.Json("[]"));
+        var store = new SupabaseProfileStore(new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore()), Group);
 
-        var saved = await store.SaveAsync(deck);
-        deck.OwnerProfileId = null;
-        await store.SaveAsync(deck);
+        var error = await Assert.ThrowsAsync<SupabaseException>(() => store.SaveAsync(new PlayerProfile { Name = "Sam" }));
+        Assert.Equal(403, error.Status);
+    }
 
-        Assert.Equal(owner, saved.OwnerProfileId);
-        Assert.Contains($"\"owner_profile_id\":\"{owner}\"", bodies[0]);
-        Assert.Contains("\"owner_profile_id\":null", bodies[1]);
+    [Fact]
+    public async Task SupabaseProfileStore_CreatesUnclaimedProfilesInTheGroup()
+    {
+        var handler = new FakeHandler((_, _) => FakeHandler.Json(ProfileJson));
+        var store = new SupabaseProfileStore(new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore()), Group);
+
+        var created = await store.CreateAsync("  Sam ");
+
+        var (request, body) = handler.Requests.Single();
+        Assert.Equal("/rest/v1/rpc/create_profile", request.RequestUri!.AbsolutePath);
+        Assert.Contains("\"profile_name\":\"Sam\"", body);
+        Assert.Contains($"\"group_id\":\"{Group.Id}\"", body);
+        Assert.Equal("Sam", created.Name);
+    }
+
+    [Fact]
+    public void Profiles_AreManagedByTheirPlayer_OrByTheirMakerUntilClaimed()
+    {
+        var me = Guid.NewGuid();
+        var someoneElse = Guid.NewGuid();
+
+        Assert.True(new PlayerProfile { UserId = me, CreatedBy = someoneElse }.CanBeManagedBy(me));
+        Assert.True(new PlayerProfile { UserId = null, CreatedBy = me }.CanBeManagedBy(me));
+        // Once claimed, the maker loses control of it.
+        Assert.False(new PlayerProfile { UserId = someoneElse, CreatedBy = me }.CanBeManagedBy(me));
+        Assert.False(new PlayerProfile { UserId = null, CreatedBy = someoneElse }.CanBeManagedBy(me));
+        Assert.False(new PlayerProfile { UserId = null, CreatedBy = me }.CanBeManagedBy(null));
     }
 
     [Fact]
@@ -330,36 +332,9 @@ public class ProfileTests
     }
 }
 
-public class OldSchemaTests
+public class SchemaTests
 {
     private static readonly SupabaseOptions Options = new("https://example.supabase.co", "sb_publishable_test123");
-
-    [Fact]
-    public async Task SupabaseDeckStore_KeepsWorkingOnADatabaseWithoutOwnerProfiles()
-    {
-        var group = new Playgroup(Guid.NewGuid(), "Friday Night", "ABCD1234", null);
-        var handler = new FakeHandler((request, body) =>
-        {
-            var url = request.RequestUri!.ToString();
-            // What PostgREST says when a column from a newer schema.sql isn't there.
-            if (request.Method == HttpMethod.Get && url.Contains("owner_profile_id"))
-                return FakeHandler.Json("""{"code":"42703","message":"column decks.owner_profile_id does not exist"}""", System.Net.HttpStatusCode.BadRequest);
-            if (request.Method == HttpMethod.Post && body!.Contains("owner_profile_id"))
-                return FakeHandler.Json("""{"code":"PGRST204","message":"Could not find the 'owner_profile_id' column of 'decks' in the schema cache"}""", System.Net.HttpStatusCode.BadRequest);
-            if (request.Method == HttpMethod.Post) return FakeHandler.Json($"[{body}]");
-            return FakeHandler.Json($$"""[{"id":"{{Guid.NewGuid()}}","playgroup_id":"{{group.Id}}","name":"Burn","format":"modern","cards":[]}]""");
-        });
-        var client = new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore());
-
-        var decks = await new SupabaseDeckStore(client, group).ListAsync();
-        var saved = await new SupabaseDeckStore(client, group).SaveAsync(new Deck { Name = "Elves", OwnerProfileId = Guid.NewGuid() });
-
-        Assert.Equal("Burn", decks.Single().Name);
-        Assert.Equal("Elves", saved.Name);
-        // After the first miss, later requests go straight to the old columns.
-        Assert.Equal(3, handler.Requests.Count);
-        Assert.DoesNotContain("owner_profile_id", handler.Requests[2].Body);
-    }
 
     [Fact]
     public void SchemaProblems_AreRecognised()

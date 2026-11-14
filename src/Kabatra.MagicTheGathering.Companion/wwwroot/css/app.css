@@ -265,6 +265,19 @@ input[type="search"], input[type="email"] { min-width: 0; }
 .panel.account h2 { margin: 0; font-size: 1.15rem; }
 .panel.account p { margin: 0; }
 
+.sign-in { max-width: 520px; }
+.benefits { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.25rem; }
+.provider-buttons { display: grid; gap: 0.6rem; }
+.provider-button {
+    display: flex; align-items: center; justify-content: center; gap: 0.6rem;
+    width: 100%; min-height: 48px; font-weight: 600;
+}
+.provider-icon { width: 20px; height: 20px; flex: none; }
+.first-sign-in { max-width: 560px; padding-top: 6vh; }
+.claim-code { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.claim-code code { font-size: 1.3rem; letter-spacing: 0.12em; padding: 0.2rem 0.6rem; border: 1px dashed var(--border); border-radius: 8px; }
+.badge { display: inline-block; font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); vertical-align: middle; }
+
 .account-bar {
     display: flex;
     flex-wrap: wrap;
@@ -573,3 +586,15 @@ label.button.disabled { opacity: 0.5; pointer-events: none; }
 .won { color: #22c55e; }
 .lost { color: var(--danger); }
 @media (prefers-color-scheme: light) { .won { color: #15803d; } }
+
+/* Playgroup admin */
+.profile-grid li { display: grid; gap: 0.2rem; align-content: start; }
+button.danger { color: var(--danger); border-color: var(--danger); }
+
+/* Backups */
+.backup { padding: 0.2rem 0; }
+.backup summary { cursor: pointer; color: var(--muted); }
+.backup[open] { display: grid; gap: 0.5rem; }
+.backup p { margin: 0; }
+.file-button { position: relative; overflow: hidden; cursor: pointer; }
+.file-button input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }

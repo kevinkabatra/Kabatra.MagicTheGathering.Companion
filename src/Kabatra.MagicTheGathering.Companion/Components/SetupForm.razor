@@ -7,6 +7,10 @@
         <div class="actions">
             <a href="profiles" class="button">Players →</a>
             <a href="decks" class="button">Decks →</a>
+            @if (Library.Guest && Library.Configured)
+            {
+                <a href="sign-in" class="button">Sign in</a>
+            }
         </div>
     </div>
 

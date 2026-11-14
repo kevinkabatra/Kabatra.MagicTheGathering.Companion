@@ -2,7 +2,7 @@
 @implements IDisposable
 @inject DeckLibrary Library
 
-<PageTitle>Decks · MTG Companion</PageTitle>
+<PageTitle>Decks · Someone Else's Table</PageTitle>
 
 <div class="page">
     <header class="page-head">
@@ -63,7 +63,8 @@
     private bool _loading = true;
     private string? _error;
     private string? _loadedKey;
-    private string StoreKey => $"{Library.SignedIn}:{Library.CurrentGroup?.Id}";
+    // Reload when signing in or out, switching groups, or after decks are moved or restored in bulk.
+    private string StoreKey => $"{Library.SignedIn}:{Library.MyProfile?.Id}:{Library.CurrentGroup?.Id}:{Library.DecksVersion}";
 
     protected override async Task OnInitializedAsync()
     {

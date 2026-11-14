@@ -1,0 +1,83 @@
+@* Back up all of the player's own decks (and collection, when signed in) to one file, or restore from one. *@
+@implements IAsyncDisposable
+@inject DeckLibrary Library
+@inject IJSRuntime Js
+
+<details class="backup">
+    <summary>Back up or restore decks</summary>
+    <p class="muted small">
+        @(Library.Guest
+            ? "Save all your decks to one file, to keep a copy or move them to another device or browser."
+            : "Save all your decks and your collection to one file, to keep a copy of your own.")
+        Restoring adds what's in the file; it never overwrites or deletes anything.
+    </p>
+    <div class="actions">
+        <button @onclick="ExportAsync" disabled="@_busy">Save backup file</button>
+        <label class="button file-button">
+            Restore from file
+            <InputFile OnChange="RestoreAsync" accept=".json,application/json" disabled="@_busy" />
+        </label>
+    </div>
+    @if (_message is not null) { <p class="small" role="status">@_message</p> }
+    <ErrorMessage Message="@_error" />
+</details>
+
+@code {
+    /// <summary>Backups are small (a few hundred KB even for a big collection); this refuses anything absurd.</summary>
+    private const long MaxBytes = 20 * 1024 * 1024;
+
+    private IJSObjectReference? _files;
+    private bool _busy;
+    private string? _message;
+    private string? _error;
+
+    private async Task ExportAsync()
+    {
+        _busy = true;
+        _message = _error = null;
+        try
+        {
+            var now = DateTimeOffset.Now;
+            var json = await Library.ExportBackupAsync(now);
+            if (json is null) return;
+            _files ??= await Js.InvokeAsync<IJSObjectReference>("import", "./js/files.js");
+            await _files.InvokeVoidAsync("saveTextFile", BackupFile.FileName(now), json, "application/json");
+            _message = "Backup saved.";
+        }
+        catch (DeckLibraryException e) { _error = e.Message; }
+        catch (JSException e) { _error = $"Couldn't save the file: {e.Message}"; }
+        finally { _busy = false; }
+    }
+
+    private async Task RestoreAsync(InputFileChangeEventArgs e)
+    {
+        _busy = true;
+        _message = _error = null;
+        try
+        {
+            using var reader = new StreamReader(e.File.OpenReadStream(MaxBytes));
+            var backup = BackupFile.Read(await reader.ReadToEndAsync());
+            if (await Library.RestoreBackupAsync(backup) is not { } result) return;
+            _message = Describe(result);
+        }
+        catch (BackupException ex) { _error = ex.Message; }
+        catch (IOException ex) { _error = $"Couldn't read the file: {ex.Message}"; }
+        catch (DeckLibraryException ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private static string Describe(DeckLibrary.RestoreResult r)
+    {
+        var parts = new List<string> { r.DecksAdded == 1 ? "Added 1 deck" : $"Added {r.DecksAdded} decks" };
+        if (r.DecksSkipped > 0) parts.Add($"{r.DecksSkipped} already here");
+        if (r.CardsAdded > 0) parts.Add($"{r.CardsAdded} cards added to your collection");
+        if (r.CollectionSkipped) parts.Add("the collection in the file needs you to sign in");
+        return string.Join("; ", parts) + ".";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { if (_files is not null) await _files.DisposeAsync(); }
+        catch (JSDisconnectedException) { }
+    }
+}

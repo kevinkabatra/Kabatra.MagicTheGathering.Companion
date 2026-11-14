@@ -1,0 +1,46 @@
+@page "/sign-in"
+@implements IDisposable
+@inject DeckLibrary Library
+
+<PageTitle>Sign in · Someone Else's Table</PageTitle>
+
+<div class="page sign-in">
+    <header class="page-head">
+        <a href="" class="back">← Game</a>
+        <h1>Sign in</h1>
+    </header>
+
+    @if (Library.SignedIn)
+    {
+        <section class="panel account">
+            <h2>You're signed in</h2>
+            <p class="muted">Signed in as <a href="profiles/@Library.MyProfile?.Id">@(Library.MyProfile?.Name ?? Library.Email)</a>.</p>
+            <div class="actions">
+                <a class="button" href="profiles">Players →</a>
+                <a class="button" href="decks">Decks →</a>
+            </div>
+        </section>
+    }
+    else if (!Library.Configured)
+    {
+        <p class="notice">Sign-in isn't set up for this copy of the app. Everything else works, and decks are saved on this device.</p>
+    }
+    else
+    {
+        <section class="panel account">
+            <h2>Signing in is optional</h2>
+            <p class="muted">
+                Games, deck building, card search, scanning and prebuilt decks all work without an account; your decks
+                are saved on this device. Signing in adds:
+            </p>
+            <SignInBenefits />
+            <SignInButtons />
+        </section>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized() => Library.Changed += OnChanged;
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Library.Changed -= OnChanged;
+}

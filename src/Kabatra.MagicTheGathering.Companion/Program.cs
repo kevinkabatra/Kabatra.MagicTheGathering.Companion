@@ -6,6 +6,7 @@ using Kabatra.MagicTheGathering.Companion.Core.Cards;
 using Kabatra.MagicTheGathering.Companion.Core.Cloud;
 using Kabatra.MagicTheGathering.Companion.Core.Decks;
 using Kabatra.MagicTheGathering.Companion.Core.History;
+using Kabatra.MagicTheGathering.Companion.Core.Profiles;
 using Kabatra.MagicTheGathering.Companion.Services;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
@@ -24,7 +25,8 @@ builder.Services.AddScoped<CardCatalog>();
 builder.Services.AddScoped(sp => new PreconCatalog(
     new HttpClient { BaseAddress = PreconCatalog.DefaultBaseAddress }, sp.GetRequiredService<IKeyValueStore>()));
 
-// Shared decks in Supabase. Leave Supabase:Url / Supabase:PublishableKey empty in appsettings.json to keep decks on the device.
+// Supabase holds signed-in players' profiles, playgroups, decks and play history. Signing in is optional:
+// without it (or with no Supabase project configured) the app runs in guest mode and decks stay on the device.
 // Supabase:AnonKey is still read so a project on the legacy keys keeps working until it migrates.
 var supabase = new SupabaseOptions(
     builder.Configuration["Supabase:Url"],
@@ -32,6 +34,12 @@ var supabase = new SupabaseOptions(
 builder.Services.AddSingleton(supabase);
 builder.Services.AddScoped(sp => new SupabaseClient(new HttpClient(), supabase, sp.GetRequiredService<IKeyValueStore>()));
 builder.Services.AddScoped<PlaygroupService>();
+builder.Services.AddScoped<ProfileAccount>();
+builder.Services.AddScoped<SyncPolicy>();
+
+// Sign-in providers, e.g. "Auth": { "Providers": ["google", "apple"] }. Each must be turned on in Supabase Auth.
+var providers = AuthProviders.From(builder.Configuration.GetSection("Auth:Providers").GetChildren().Select(c => c.Value));
+builder.Services.AddSingleton(providers);
 builder.Services.AddScoped<DeckLibrary>();
 builder.Services.AddScoped(sp => new GameRecorder(sp.GetRequiredService<IKeyValueStore>()));
 builder.Services.AddScoped(sp => new PlayHistory(sp.GetRequiredService<DeckLibrary>(), sp.GetRequiredService<GameRecorder>()));

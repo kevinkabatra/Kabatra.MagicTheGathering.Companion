@@ -4,7 +4,7 @@
 @inject PreconCatalog Precons
 @inject NavigationManager Nav
 
-<PageTitle>Import deck · MTG Companion</PageTitle>
+<PageTitle>Import deck · Someone Else's Table</PageTitle>
 
 <div class="page">
     <header class="page-head">
@@ -99,10 +99,22 @@
                         <span>Deck name</span>
                         <input @bind="_name" placeholder="Taken from the list if it has one" maxlength="120" />
                     </label>
-                    <label class="field grow">
-                        <span>Player</span>
-                        <input @bind="_owner" maxlength="60" />
-                    </label>
+                    @if (Library.Guest)
+                    {
+                        <label class="field grow">
+                            <span>Player</span>
+                            <input @bind="_ownerName" maxlength="60" />
+                        </label>
+                    }
+                    else if (_owners.Count > 1)
+                    {
+                        <label class="field grow">
+                            <span>Owner</span>
+                            <select @bind="_ownerId">
+                                @foreach (var p in _owners) { <option value="@p.Id">@p.Name</option> }
+                            </select>
+                        </label>
+                    }
                     <label class="field grow">
                         <span>Format</span>
                         <select @bind="_format">
@@ -136,7 +148,9 @@
     private const int MaxShown = 50;
     private string _text = "";
     private string _name = "";
-    private string _owner = "";
+    private string _ownerId = "";
+    private string _ownerName = "";
+    private List<PlayerProfile> _owners = [];
     private string _format = DeckFormat.Commander.Id;
     private List<string> _problems = [];
     private bool _confirmedProblems;
@@ -156,7 +170,14 @@
     protected override async Task OnInitializedAsync()
     {
         await Library.InitializeAsync();
-        _owner = Library.DisplayName ?? "";
+        // You own what you import, or you can give it to an unclaimed profile you look after.
+        if (Library.MyProfile is { } me) { _owners = [me]; _ownerId = me.Id.ToString(); }
+        try
+        {
+            if (Library.Profiles is { } profiles)
+                _owners.AddRange((await profiles.ListAsync()).Where(p => Library.CanManage(p) && p.Id != Library.MyProfile?.Id));
+        }
+        catch (Exception e) when (e is SupabaseException or HttpRequestException) { } // you can still own it yourself
     }
 
     private async Task SetMode(bool precon)
@@ -256,7 +277,8 @@
     private async Task ResolveAndSaveAsync(Deck deck)
     {
         if (Library.Store is not { } store) return;
-        deck.OwnerName = _owner.Trim();
+        if (Library.Guest) deck.OwnerName = _ownerName.Trim();
+        else deck.OwnerProfileId = Guid.TryParse(_ownerId, out var owner) ? owner : Library.MyProfile?.Id;
         _busy = true;
         try
         {
