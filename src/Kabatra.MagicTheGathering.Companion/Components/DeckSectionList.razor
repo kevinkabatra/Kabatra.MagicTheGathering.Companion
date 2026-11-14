@@ -14,16 +14,14 @@
         @foreach (var line in Lines)
         {
             var card = line.ScryfallId is { } id && Cards.TryGetValue(id, out var c) ? c : null;
-            var unsaved = IsUnsaved?.Invoke(line) == true;
-            <li class="deck-line @(card is null && !Resolving ? "unknown" : null) @(unsaved ? "unsaved-line" : null)">
+            <li @key="line" class="deck-line @(card is null && !Resolving ? "unknown" : null)">
                 <div class="qty">
                     <button class="icon" @onclick="() => Change(line, line.Quantity - 1)" aria-label="One fewer @line.Name">−</button>
                     <span>@line.Quantity</span>
                     <button class="icon" @onclick="() => Change(line, line.Quantity + 1)" aria-label="One more @line.Name"
                             disabled="@(Format.IsSingleton && card is { CopyLimitOverride: 0 } && line.Section != DeckSection.Sideboard)">+</button>
                 </div>
-                <button class="card-name" @onclick="() => { if (card is not null) OnPreview.InvokeAsync(card); }"
-                        title="@(unsaved ? "Not saved yet" : null)">@line.Name</button>
+                <button class="card-name" @onclick="() => { if (card is not null) OnPreview.InvokeAsync(card); }">@line.Name</button>
                 <ManaCost Cost="@card?.ManaCost" />
                 @{ var price = DeckValue.LinePrice(line, Cards); }
                 <span class="price muted" title="@PriceTitle(line, card)">@(price is { } p ? DeckValue.FormatUsd(p) : "—")</span>
@@ -53,9 +51,6 @@
 
     [Parameter] public EventCallback OnChange { get; set; }
     [Parameter] public EventCallback<CardInfo> OnPreview { get; set; }
-
-    /// <summary>Whether a line has changes that haven't been saved yet; those names are highlighted.</summary>
-    [Parameter] public Func<DeckCard, bool>? IsUnsaved { get; set; }
 
     private static string PriceTitle(DeckCard line, CardInfo? card) =>
         card?.UsdPrice is not { } each ? "No price on Scryfall"

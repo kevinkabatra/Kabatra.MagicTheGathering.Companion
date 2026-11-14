@@ -9,8 +9,7 @@
     --muted: #9aa3af;
     --accent: #e0a84b;
     --danger: #ef4444;
-    --unsaved-bg: rgba(250, 204, 21, 0.22);
-    --unsaved-text: #fde047;
+    --added: #4ade80;
     --radius: 14px;
     --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
@@ -25,8 +24,7 @@
         --text: #15181d;
         --muted: #5f6873;
         --accent: #b7791f;
-        --unsaved-bg: #fef08a;
-        --unsaved-text: #15181d;
+        --added: #15803d;
     }
 }
 
@@ -358,15 +356,21 @@ input[type="search"], input[type="email"] { min-width: 0; }
     user-select: text;
 }
 .card-name:hover { color: var(--accent); }
-/* A line added or changed since the last save: the name gets a highlighter mark. */
-.deck-line.unsaved-line .card-name {
-    background: var(--unsaved-bg);
-    color: var(--unsaved-text);
-    border-radius: 4px;
-    padding-left: 0.3rem;
-    padding-right: 0.3rem;
-    justify-self: start;
+/* Cards added, removed or moved since the last save; only shown while there are some. */
+.pending-changes {
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 0.6rem 0.9rem;
+    margin: 0.75rem 0;
 }
+.pending-changes h3 { margin: 0 0 0.4rem; font-size: 0.95rem; color: var(--accent); }
+.pending-changes ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2rem; }
+.pending-changes li { display: grid; grid-template-columns: 2.6rem minmax(0, 1fr) auto; gap: 0.5rem; align-items: baseline; }
+.pending-changes .delta { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.pending-changes .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pending-changes .added .delta { color: var(--added); }
+.pending-changes .removed .delta { color: var(--danger); }
+.pending-changes .removed .name { text-decoration: line-through; color: var(--muted); }
 .deck-line .price { font-size: 0.8rem; font-variant-numeric: tabular-nums; text-align: right; min-width: 3.6rem; }
 .section-value { float: right; font-weight: 400; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
 .deck-value { font-variant-numeric: tabular-nums; }
