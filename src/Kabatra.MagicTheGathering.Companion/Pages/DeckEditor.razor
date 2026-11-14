@@ -44,6 +44,11 @@
                                     @foreach (var profile in Owners()) { <option value="@profile.Id">@profile.Name</option> }
                                 </select>
                             }
+                            else if (Library.Guest)
+                            {
+                                @* Guests have no profiles: the owner is just a name, as before sign-in existed. *@
+                                <input @bind="_deck.OwnerName" @bind:after="Touch" placeholder="Who owns it" maxlength="60" aria-label="Owner name" />
+                            }
                             else
                             {
                                 <input value="@_deck.OwnerName" readonly aria-label="Owner" />

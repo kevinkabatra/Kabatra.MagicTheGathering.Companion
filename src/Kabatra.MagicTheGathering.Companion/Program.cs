@@ -25,7 +25,8 @@ builder.Services.AddScoped<CardCatalog>();
 builder.Services.AddScoped(sp => new PreconCatalog(
     new HttpClient { BaseAddress = PreconCatalog.DefaultBaseAddress }, sp.GetRequiredService<IKeyValueStore>()));
 
-// Supabase holds everyone's profiles, playgroups, decks and play history; signing in is required.
+// Supabase holds signed-in players' profiles, playgroups, decks and play history. Signing in is optional:
+// without it (or with no Supabase project configured) the app runs in guest mode and decks stay on the device.
 // Supabase:AnonKey is still read so a project on the legacy keys keeps working until it migrates.
 var supabase = new SupabaseOptions(
     builder.Configuration["Supabase:Url"],

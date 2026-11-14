@@ -22,11 +22,12 @@ Built in C# with Blazor WebAssembly (.NET 8), so the whole app runs in the brows
 - **Decks:** build decks with card search from [Scryfall](https://scryfall.com), import and export Arena / MTGO / Moxfield lists, and check legality (deck size, copy limits, bans, commander rules and color identity) for Commander, Standard, Pioneer, Modern, Legacy, Vintage, Pauper, Brawl and Oathbreaker
 - **Scan cards:** point the camera at a physical card (or pick a photo) to add it to a deck. The card's name, set and collector number are read on the device with [Tesseract.js](https://tesseract.projectnaptha.com/), so photos never leave the phone, and matched to the exact printing on Scryfall
 - **Prebuilt decks:** import any official precon (Commander decks, Duel Decks, Challenger Decks, Starter Kits and more) in one tap, with the exact printings from the box. Deck lists come from [MTGJSON](https://mtgjson.com)
-- **Sign in with Google or Apple:** no passwords to remember. Your profile, decks and playgroups follow you to any device
-- **Playgroups:** create as many as you like and share them with a join code, or add people by their player code. Everyone in a group sees its players, their decks and its play history. The group's admin (its creator, until they hand it over) renames, deletes and manages who's in it
+- **No account needed:** games, deck building, card search, scanning, list import/export, legality checks and prebuilt decks all work without signing in. A guest's decks are saved on the device
+- **Optional sign-in with Google or Apple:** adds a player profile with your collection, playgroups, shared decks and play history, on every device. No passwords to remember. The first time you sign in, you can move the decks you made as a guest to your profile
+- **Playgroups** (signed in): create as many as you like and share them with a join code, or add people by their player code. Everyone in a group sees its players, their decks and its play history. The group's admin (its creator, until they hand it over) renames, deletes and manages who's in it
 - **Decks at the table:** pick each player's deck when starting a game; the format follows the decks and the player's card shows the commander's art
-- **Player profiles:** everyone who signs in gets a profile, with the cards they own (search, scan or paste a list) and what their collection is worth, plus the decks they own. Anyone can still play anyone's deck. Friends without an account can have a profile too; whoever made it gives them its invite code, and they claim it the first time they sign in. Wrong invite codes are limited: 3 in a row means a 15-minute wait, and 10 in all blocks the account
-- **Play history:** pick each seat's profile when starting a game, and the game is saved when you start the next one: who played which deck, and who won. Each profile shows games, wins and win rate, overall and per deck, and each deck shows its record across everyone who played it
+- **Player profiles** (signed in): everyone who signs in gets a profile, with the cards they own (search, scan or paste a list) and what their collection is worth, plus the decks they own. Anyone can still play anyone's deck. Friends without an account can have a profile too; whoever made it gives them its invite code, and they claim it the first time they sign in. Wrong invite codes are limited: 3 in a row means a 15-minute wait, and 10 in all blocks the account
+- **Play history** (signed in): pick each seat's profile when starting a game, and the game is saved when you start the next one: who played which deck, and who won. Each profile shows games, wins and win rate, overall and per deck, and each deck shows its record across everyone who played it
 
 ## Run it locally
 
@@ -44,9 +45,9 @@ Run the tests:
 dotnet test
 ```
 
-## Set up Supabase
+## Set up Supabase (for sign-in)
 
-The app keeps profiles, playgroups, decks and play history in a free [Supabase](https://supabase.com) project, and uses Supabase Auth for sign-in. It needs one to run.
+Signing in is optional. Without Supabase, everyone uses the app as a guest and decks stay on the device. With a free [Supabase](https://supabase.com) project, people can sign in, and their profiles, playgroups, decks and play history are kept there. Supabase Auth handles sign-in.
 
 1. Create a free project at [supabase.com](https://supabase.com).
 2. In the project's **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql). It creates:

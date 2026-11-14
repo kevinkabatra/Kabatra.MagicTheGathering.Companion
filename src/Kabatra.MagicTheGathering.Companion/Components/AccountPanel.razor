@@ -1,9 +1,27 @@
-@* Playgroup controls: pick, join or create a playgroup, and the admin's tools. Sign-in itself happens in MainLayout. *@
+@* Account controls: sign-in for guests; for signed-in players, pick, join or create a playgroup, and the admin's tools. *@
 @implements IDisposable
 @inject DeckLibrary Library
 @inject IJSRuntime Js
 
-@if (Library.Groups.Count == 0 || _managing)
+@if (Library.Guest)
+{
+    @if (!Library.Configured)
+    {
+        <p class="notice">Decks are saved on this device.</p>
+    }
+    else
+    {
+        <section class="panel account">
+            <h2>Playing as a guest</h2>
+            <p class="muted">
+                Your decks are saved on this device. Sign in to share them with your playgroup and to get:
+            </p>
+            <SignInBenefits />
+            <SignInButtons />
+        </section>
+    }
+}
+else if (Library.Groups.Count == 0 || _managing)
 {
     <section class="panel account">
         <div class="row spread">

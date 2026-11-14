@@ -1,0 +1,29 @@
+@* After signing in: offers to move the decks made as a guest on this device to the player's profile. *@
+@inject DeckLibrary Library
+
+<div class="page">
+    <section class="panel account" role="status">
+        <h2>Move your decks to your profile?</h2>
+        <p class="muted">
+            You have @(Library.LocalDecksToMove == 1 ? "1 deck" : $"{Library.LocalDecksToMove} decks") saved on this device from
+            before you signed in. Moving them puts them on your profile, so they're on every device and your playgroups can see them.
+        </p>
+        <div class="actions">
+            <button class="primary" disabled="@_busy" @onclick="MoveAsync">@(_busy ? "Moving…" : "Move them")</button>
+            <button disabled="@_busy" @onclick="Library.KeepLocalDecksAsync">Keep them on this device</button>
+        </div>
+        <ErrorMessage />
+    </section>
+</div>
+
+@code {
+    private bool _busy;
+
+    private async Task MoveAsync()
+    {
+        _busy = true;
+        try { await Library.MoveLocalDecksAsync(); }
+        catch (DeckLibraryException) { /* shown via Library.Error */ }
+        finally { _busy = false; }
+    }
+}

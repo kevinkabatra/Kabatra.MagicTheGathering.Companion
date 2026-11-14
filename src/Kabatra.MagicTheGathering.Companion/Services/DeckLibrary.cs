@@ -9,8 +9,9 @@ namespace Kabatra.MagicTheGathering.Companion.Services;
 
 /// <summary>
 /// Tracks the signed-in user and their playgroups, and decides where decks, player profiles and play history
-/// are read and saved. Everything needs a signed-in user: sign-in goes through an OAuth provider (see
-/// <see cref="AuthProviders"/>), never a password the app handles.
+/// are read and saved. Signing in is optional: a guest can play games and build decks, which are saved on
+/// this device. Signing in (through an OAuth provider, see <see cref="AuthProviders"/>; the app never handles
+/// passwords) adds a player profile, the collection, playgroups, shared decks and play history.
 /// </summary>
 public sealed class DeckLibrary(
     SupabaseClient supabase,
@@ -22,11 +23,25 @@ public sealed class DeckLibrary(
 {
     private const string GroupKey = "mtg-companion.playgroup";
     private const string MyProfileKey = "mtg-companion.my-profile";
+    private const string LocalDecksDismissedKey = "mtg-companion.local-decks-kept";
 
     private Task? _init;
+    private LocalDeckStore? _localDecks;
 
-    /// <summary>False when appsettings.json has no usable Supabase project; the app can't be used then.</summary>
+    /// <summary>False when appsettings.json has no usable Supabase project; then everyone is a guest and sign-in isn't offered.</summary>
     public bool Configured => supabase.IsConfigured;
+
+    /// <summary>Not signed in: decks are kept on this device, and profiles, playgroups and play history aren't available.</summary>
+    public bool Guest => !SignedIn;
+
+    /// <summary>A guest's decks, saved in this browser.</summary>
+    public LocalDeckStore LocalDecks => _localDecks ??= new LocalDeckStore(storage);
+
+    /// <summary>
+    /// How many decks saved on this device (from playing as a guest) the signed-in user could move to their
+    /// profile. Zero when there are none, or once they've moved them or chosen to keep them here.
+    /// </summary>
+    public int LocalDecksToMove { get; private set; }
 
     /// <summary>The sign-in buttons to offer, in order.</summary>
     public IReadOnlyList<AuthProvider> Providers => providers;
@@ -54,13 +69,22 @@ public sealed class DeckLibrary(
     /// <summary>A problem to show the user, e.g. an expired sign-in link.</summary>
     public string? Error { get; set; }
 
-    /// <summary>Where decks are read and saved right now, or null if the user still has to sign in or pick a group.</summary>
-    public IDeckStore? Store => CurrentGroup is { } group && SignedIn && MyProfile is { } me ? new SupabaseDeckStore(supabase, group, me.Id) : null;
+    /// <summary>
+    /// Where decks are read and saved right now: a guest's are on this device; a signed-in player sees their
+    /// playgroup's decks (or just their own, with no playgroup). Null while a signed-in user has no profile yet.
+    /// </summary>
+    public IDeckStore? Store =>
+        Guest ? LocalDecks
+        : MyProfile is { } me ? new SupabaseDeckStore(supabase, CurrentGroup, me.Id)
+        : null;
 
-    /// <summary>Where player profiles are read and saved right now; null in the same cases as <see cref="Store"/>.</summary>
-    public IProfileStore? Profiles => CurrentGroup is { } group && SignedIn ? new SupabaseProfileStore(supabase, group) : null;
+    /// <summary>
+    /// Where player profiles are read and saved: the playgroup's players, or with no playgroup, your own profile and
+    /// the ones you look after. Null for guests and until a signed-in user has a profile.
+    /// </summary>
+    public IProfileStore? Profiles => SignedIn && MyProfile is not null ? new SupabaseProfileStore(supabase, CurrentGroup) : null;
 
-    /// <summary>Where finished games are read and saved right now; null in the same cases as <see cref="Store"/>.</summary>
+    /// <summary>Where finished games are read and saved: the current playgroup's history. Null for guests and with no playgroup.</summary>
     public IGameHistoryStore? History => CurrentGroup is { } group && SignedIn ? new SupabaseGameHistoryStore(supabase, group) : null;
 
     /// <summary>
@@ -146,6 +170,7 @@ public sealed class DeckLibrary(
         CurrentGroup = null;
         MyProfile = null;
         Onboarding = null;
+        LocalDecksToMove = 0;
     }
 
     /// <summary>
@@ -364,6 +389,41 @@ public sealed class DeckLibrary(
         var saved = Guid.TryParse(await storage.GetAsync(GroupKey), out var id) ? id : (Guid?)null;
         CurrentGroup = Groups.FirstOrDefault(g => g.Id == (select ?? saved)) ?? Groups.FirstOrDefault();
         if (CurrentGroup is not null) await storage.SetAsync(GroupKey, CurrentGroup.Id.ToString());
+        await CountLocalDecksAsync();
+    }
+
+    // ----- Decks made as a guest -----
+
+    private async Task CountLocalDecksAsync()
+    {
+        var kept = await storage.GetAsync(LocalDecksDismissedKey);
+        LocalDecksToMove = MyProfile is not null && kept != UserId?.ToString() ? await LocalDecks.CountAsync() : 0;
+    }
+
+    /// <summary>
+    /// Moves the decks saved on this device (from playing as a guest) to the signed-in user's profile, so they're
+    /// on every device and shared with their playgroups. Each deck is removed from the device once it's saved.
+    /// </summary>
+    public Task MoveLocalDecksAsync() => Run(async () =>
+    {
+        if (MyProfile is not { } me) return;
+        var target = new SupabaseDeckStore(supabase, CurrentGroup, me.Id);
+        foreach (var deck in await LocalDecks.ListAsync())
+        {
+            var copy = deck.Clone();
+            copy.OwnerProfileId = me.Id;
+            await target.SaveAsync(copy);
+            await LocalDecks.DeleteAsync(deck.Id);
+        }
+        LocalDecksToMove = 0;
+    });
+
+    /// <summary>Leaves the device's decks where they are, and stops offering to move them for this account.</summary>
+    public async Task KeepLocalDecksAsync()
+    {
+        if (UserId is { } id) await storage.SetAsync(LocalDecksDismissedKey, id.ToString());
+        LocalDecksToMove = 0;
+        Changed?.Invoke();
     }
 
     /// <summary>Runs an action, turning failures into <see cref="Error"/> and telling listeners either way.</summary>

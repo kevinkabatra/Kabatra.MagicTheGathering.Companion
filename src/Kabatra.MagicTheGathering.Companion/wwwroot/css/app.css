@@ -265,7 +265,8 @@ input[type="search"], input[type="email"] { min-width: 0; }
 .panel.account h2 { margin: 0; font-size: 1.15rem; }
 .panel.account p { margin: 0; }
 
-.sign-in { max-width: 420px; padding-top: 12vh; }
+.sign-in { max-width: 520px; }
+.benefits { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.25rem; }
 .provider-buttons { display: grid; gap: 0.6rem; }
 .provider-button {
     display: flex; align-items: center; justify-content: center; gap: 0.6rem;

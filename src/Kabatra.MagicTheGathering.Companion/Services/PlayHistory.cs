@@ -6,16 +6,21 @@ namespace Kabatra.MagicTheGathering.Companion.Services;
 
 /// <summary>
 /// Records finished games in the playgroup's play history. Games are queued on the device first,
-/// so one finished offline or while signed out is saved the next time the history can be reached.
+/// so one finished offline is saved the next time the history can be reached. Guests' games aren't recorded.
 /// </summary>
 public sealed class PlayHistory(DeckLibrary library, GameRecorder recorder, TimeProvider? clock = null)
 {
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
 
-    /// <summary>Records the game if it's worth keeping (see <see cref="GameRecord.IsWorthRecording"/>).</summary>
+    /// <summary>
+    /// Records the game if it's worth keeping (see <see cref="GameRecord.IsWorthRecording"/>). Guests' games
+    /// aren't recorded: play history belongs to a playgroup, which needs signing in.
+    /// </summary>
     public async Task RecordAsync(Game game)
     {
         if (!GameRecord.IsWorthRecording(game)) return;
+        await library.InitializeAsync();
+        if (library.Guest) return;
         await recorder.QueueAsync(GameRecord.From(game, _clock.GetUtcNow()), await library.HistoryGroupAsync());
         await TrySyncAsync();
     }

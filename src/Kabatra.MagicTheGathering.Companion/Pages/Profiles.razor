@@ -18,17 +18,20 @@
     @if (Library.Profiles is not null)
     {
         var admin = Library.IsAdmin(Library.CurrentGroup);
-        @if (admin)
+        @if (admin || Library.CurrentGroup is null)
         {
             <form class="inline-form" @onsubmit="CreateAsync">
                 <input placeholder="New player's name" maxlength="60" @bind="_newName" aria-label="New player's name" />
                 <button class="primary" type="submit" disabled="@(_busy || string.IsNullOrWhiteSpace(_newName))">+ New player</button>
             </form>
             <p class="muted small">For friends without an account. You look after their profile until they sign in and claim it with its invite code.</p>
-            <form class="inline-form" @onsubmit="AddByCodeAsync">
-                <input placeholder="Someone's player code" maxlength="20" @bind="_playerCode" aria-label="Player code" style="text-transform:uppercase" />
-                <button type="submit" disabled="@(_busy || string.IsNullOrWhiteSpace(_playerCode))">Add by player code</button>
-            </form>
+            @if (admin)
+            {
+                <form class="inline-form" @onsubmit="AddByCodeAsync">
+                    <input placeholder="Someone's player code" maxlength="20" @bind="_playerCode" aria-label="Player code" style="text-transform:uppercase" />
+                    <button type="submit" disabled="@(_busy || string.IsNullOrWhiteSpace(_playerCode))">Add by player code</button>
+                </form>
+            }
         }
         else
         {
@@ -111,7 +114,7 @@
     private string? _error;
     private string? _historyError;
     private string? _loadedKey;
-    private string StoreKey => $"{Library.SignedIn}:{Library.CurrentGroup?.Id}";
+    private string StoreKey => $"{Library.SignedIn}:{Library.MyProfile?.Id}:{Library.CurrentGroup?.Id}";
 
     protected override async Task OnInitializedAsync()
     {

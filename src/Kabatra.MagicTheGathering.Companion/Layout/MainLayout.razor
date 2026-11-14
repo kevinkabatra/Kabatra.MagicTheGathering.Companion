@@ -5,36 +5,29 @@
 
 @if (SupabaseSettings.Problem is { } problem)
 {
-    <div class="page"><p class="notice error" role="alert">The app can't start: @problem</p></div>
+    <div class="page"><p class="notice error" role="alert">Sign-in is turned off: @problem</p></div>
 }
-else if (!Library.Configured)
+
+@if (!Library.Ready)
 {
-    <div class="page">
-        <p class="notice error" role="alert">
-            The app isn't connected to a Supabase project yet. Put the project's URL and publishable key in
-            wwwroot/appsettings.json (see the README).
-        </p>
-    </div>
+    <p class="muted center">Loading…</p>
 }
-else if (!Library.Ready)
+else if (Library.SignedIn && Library.MyProfile is null)
 {
-    <p class="muted center">Checking your sign-in…</p>
-}
-else if (!Library.SignedIn)
-{
-    <SignInScreen />
-}
-else if (Library.MyProfile is null)
-{
+    @* Signed in for the first time: choose a profile before anything else. *@
     <FirstSignInScreen />
 }
 else
 {
+    @if (Library.LocalDecksToMove > 0)
+    {
+        <LocalDecksOffer />
+    }
     @Body
 }
 
 @code {
-    // Done here so a sign-in redirect works whichever page it lands on, and every page waits for sign-in.
+    // Done here so a sign-in redirect works whichever page it lands on. Signing in is optional: guests use the app as is.
     protected override Task OnInitializedAsync()
     {
         Library.Changed += OnChanged;

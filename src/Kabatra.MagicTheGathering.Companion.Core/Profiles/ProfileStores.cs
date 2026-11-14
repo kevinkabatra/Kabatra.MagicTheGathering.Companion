@@ -3,7 +3,7 @@ using Kabatra.MagicTheGathering.Companion.Core.Decks;
 
 namespace Kabatra.MagicTheGathering.Companion.Core.Profiles;
 
-/// <summary>The player profiles in a playgroup.</summary>
+/// <summary>The player profiles in a playgroup, or with no playgroup, the signed-in player's own and the ones they look after.</summary>
 public interface IProfileStore
 {
     Task<IReadOnlyList<PlayerProfile>> ListAsync(CancellationToken ct = default);
@@ -11,7 +11,7 @@ public interface IProfileStore
     /// <summary>Any profile the user can see, whether or not it's in this playgroup.</summary>
     Task<PlayerProfile?> GetAsync(Guid id, CancellationToken ct = default);
 
-    /// <summary>Makes an unclaimed profile in the playgroup (playgroup admin only) and returns it.</summary>
+    /// <summary>Makes an unclaimed profile, in the playgroup if there is one (playgroup admin only), and returns it.</summary>
     Task<PlayerProfile> CreateAsync(string name, CancellationToken ct = default);
 
     /// <summary>Saves an existing profile's name and collection, and returns it as stored.</summary>
@@ -24,15 +24,17 @@ public interface IProfileStore
 /// Profiles in a playgroup, stored in the Supabase "player_profiles" table and linked to playgroups through
 /// "playgroup_profiles". Who may change what is decided by row-level security (see supabase/schema.sql).
 /// </summary>
-public sealed class SupabaseProfileStore(SupabaseClient supabase, Playgroup group) : IProfileStore
+public sealed class SupabaseProfileStore(SupabaseClient supabase, Playgroup? group) : IProfileStore
 {
     /// <summary>Readable columns. The claim code isn't one: only its admin can read it, with profile_claim_code().</summary>
     internal const string Columns = "id,name,user_id,created_by,player_code,collection,updated_at";
 
     public async Task<IReadOnlyList<PlayerProfile>> ListAsync(CancellationToken ct = default)
     {
-        var rows = await supabase.GetAsync<List<ProfileRow>>(
-            $"player_profiles?select={Columns},playgroup_profiles!inner(playgroup_id)&playgroup_profiles.playgroup_id=eq.{group.Id}&order=name", ct);
+        var me = supabase.Session?.UserId;
+        var rows = await supabase.GetAsync<List<ProfileRow>>(group is null
+            ? $"player_profiles?select={Columns}&or=(user_id.eq.{me},and(user_id.is.null,created_by.eq.{me}))&order=name"
+            : $"player_profiles?select={Columns},playgroup_profiles!inner(playgroup_id)&playgroup_profiles.playgroup_id=eq.{group.Id}&order=name", ct);
         return rows.Select(r => r.ToProfile()).ToList();
     }
 
@@ -44,7 +46,7 @@ public sealed class SupabaseProfileStore(SupabaseClient supabase, Playgroup grou
 
     public async Task<PlayerProfile> CreateAsync(string name, CancellationToken ct = default)
     {
-        var row = await supabase.RpcAsync<ProfileRow>("create_profile", new { profile_name = name.Trim(), group_id = group.Id }, ct);
+        var row = await supabase.RpcAsync<ProfileRow>("create_profile", new { profile_name = name.Trim(), group_id = group?.Id }, ct);
         return row.ToProfile();
     }
 
