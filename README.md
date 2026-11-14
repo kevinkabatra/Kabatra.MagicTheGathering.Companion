@@ -1,4 +1,4 @@
-# MTG Companion
+# Someone Else's Table
 
 A table-side helper for playing Magic: The Gathering with friends. It runs in any web browser — put it on a phone or tablet in the middle of the table and everyone can see and tap their own life total.
 
@@ -104,8 +104,8 @@ Every push to `main` builds and deploys the app to GitHub Pages via `.github/wor
 
 ## Legal
 
-Card data and images are provided by [Scryfall](https://scryfall.com). MTG Companion is not produced by or endorsed by Scryfall.
+Card data and images are provided by [Scryfall](https://scryfall.com). Someone Else's Table is not produced by or endorsed by Scryfall.
 
-MTG Companion is unofficial Fan Content permitted under the Wizards of the Coast Fan Content Policy. Not approved or endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. © Wizards of the Coast LLC.
+Someone Else's Table is unofficial Fan Content permitted under the Wizards of the Coast Fan Content Policy. Not approved or endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. © Wizards of the Coast LLC.
 
 Code is released under the [MIT License](LICENSE).

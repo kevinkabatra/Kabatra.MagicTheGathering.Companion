@@ -1,4 +1,4 @@
--- MTG Companion: one-off wipe for the move to Google/Apple sign-in and account-linked player profiles.
+-- Someone Else's Table: one-off wipe for the move to Google/Apple sign-in and account-linked player profiles.
 --
 -- Run this ONCE in the SQL Editor after the new version is deployed, then run supabase/schema.sql.
 -- It permanently deletes every player profile, playgroup, stored deck and recorded game. It can't be undone.

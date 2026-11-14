@@ -1,4 +1,4 @@
--- MTG Companion: player profiles, playgroups, decks and play history.
+-- Someone Else's Table: player profiles, playgroups, decks and play history.
 -- Run this in your Supabase project's SQL Editor (Dashboard -> SQL Editor -> New query).
 -- It is safe to run again: it only creates what is missing and replaces the functions and policies.
 --
