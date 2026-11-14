@@ -68,20 +68,29 @@
         {
             var index = i;
             <li>
-                <span class="swatch" style="background:@Game.DefaultColors[index % Game.DefaultColors.Count]"></span>
                 <div class="seat">
-                    @if (_profiles.Count > 0)
+                    <div class="seat-player">
+                        <span class="swatch" style="background:@Game.DefaultColors[index % Game.DefaultColors.Count]"></span>
+                        @if (_profiles.Count > 0)
+                        {
+                            <select value="@(_profileIds[index]?.ToString() ?? "")" @onchange="e => PickProfile(index, e.Value?.ToString())" aria-label="Player @(index + 1) profile">
+                                <option value="">Guest</option>
+                                @foreach (var profile in _profiles)
+                                {
+                                    <option value="@profile.Id" disabled="@(_profileIds.Contains(profile.Id) && _profileIds[index] != profile.Id)">@profile.Name</option>
+                                }
+                            </select>
+                        }
+                        else
+                        {
+                            @NameInput(index)
+                        }
+                    </div>
+                    @* A chosen player profile supplies the name; only guests type one in. *@
+                    @if (_profiles.Count > 0 && _profileIds[index] is null)
                     {
-                        <select value="@(_profileIds[index]?.ToString() ?? "")" @onchange="e => PickProfile(index, e.Value?.ToString())" aria-label="Player @(index + 1) profile">
-                            <option value="">Guest</option>
-                            @foreach (var profile in _profiles)
-                            {
-                                <option value="@profile.Id" disabled="@(_profileIds.Contains(profile.Id) && _profileIds[index] != profile.Id)">@profile.Name</option>
-                            }
-                        </select>
+                        @NameInput(index)
                     }
-                    <input placeholder="Player @(index + 1)" value="@_names[index]"
-                           @onchange="e => _names[index] = e.Value?.ToString() ?? string.Empty" aria-label="Player @(index + 1) name" />
                     @if (_decks.Count > 0)
                     {
                         <div class="seat-deck">
@@ -141,6 +150,10 @@
     private List<PlayerProfile> _profiles = [];
     private string? _formatHint;
     private bool _switchingGroup;
+
+    private RenderFragment NameInput(int index) =>
+        @<input placeholder="Player @(index + 1)" value="@_names[index]"
+                @onchange="e => _names[index] = e.Value?.ToString() ?? string.Empty" aria-label="Player @(index + 1) name" />;
 
     protected override async Task OnInitializedAsync()
     {
