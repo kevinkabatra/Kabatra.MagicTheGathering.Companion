@@ -84,6 +84,7 @@
                            @onchange="e => _names[index] = e.Value?.ToString() ?? string.Empty" aria-label="Player @(index + 1) name" />
                     @if (_decks.Count > 0)
                     {
+                        <div class="seat-deck">
                         <select value="@(_deckIds[index]?.ToString() ?? "")" @onchange="e => PickDeck(index, e.Value?.ToString())" aria-label="Player @(index + 1) deck">
                             <option value="">No deck</option>
                             @* Any deck can be played by anyone; the seat's own decks are listed first. *@
@@ -92,11 +93,16 @@
                                 <optgroup label="@owner.Key">
                                     @foreach (var deck in owner)
                                     {
-                                        <option value="@deck.Id">@deck.Name (@deck.GetFormat().Name)</option>
+                                        <option value="@deck.Id">@deck.Name (@DeckDetails(deck))</option>
                                     }
                                 </optgroup>
                             }
                         </select>
+                        @if (_decks.FirstOrDefault(d => d.Id == _deckIds[index]) is { } picked)
+                        {
+                            <BracketBadge Deck="picked" />
+                        }
+                        </div>
                     }
                 </div>
                 <label class="radio" title="Goes first">
@@ -107,9 +113,9 @@
         }
     </ol>
 
-    @if (_formatHint is not null)
+    @if (string.Join(" ", new[] { _formatHint, BracketHint() }.OfType<string>()) is { Length: > 0 } hint)
     {
-        <p class="muted small">@_formatHint</p>
+        <p class="muted small">@hint</p>
     }
 
     <label class="radio">
@@ -186,6 +192,29 @@
             UpdateFormatFromDecks();
         }
         finally { _switchingGroup = false; }
+    }
+
+    /// <summary>"Commander · Bracket 3", or just the format for decks that brackets don't apply to.</summary>
+    private static string DeckDetails(Deck deck) =>
+        CommanderBrackets.Assess(deck) is { } bracket
+            ? $"{deck.GetFormat().Name} · Bracket {bracket.Number}"
+            : deck.GetFormat().Name;
+
+    /// <summary>A note when the chosen Commander decks aren't all in the same bracket.</summary>
+    private string? BracketHint()
+    {
+        var brackets = _deckIds.OfType<Guid>()
+            .Select(id => _decks.FirstOrDefault(d => d.Id == id))
+            .OfType<Deck>()
+            .Select(CommanderBrackets.Assess)
+            .OfType<BracketAssessment>()
+            .Select(a => a.Number)
+            .Distinct()
+            .Order()
+            .ToList();
+        return brackets.Count > 1
+            ? $"The chosen decks range from Bracket {brackets[0]} to Bracket {brackets[^1]}. Check the table is happy with that."
+            : null;
     }
 
     /// <summary>Decks grouped by owner, with the seat's own decks first.</summary>

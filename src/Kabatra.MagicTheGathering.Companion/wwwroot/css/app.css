@@ -567,6 +567,8 @@ label.button.disabled { opacity: 0.5; pointer-events: none; }
 /* ---------- Setup: deck pickers ---------- */
 .player-names .seat { flex: 1; min-width: 0; display: grid; gap: 0.3rem; }
 .player-names .seat select { font-size: 0.9rem; padding: 0.35rem 0.5rem; }
+.player-names .seat-deck { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
+.player-names .seat-deck select { flex: 1; min-width: 0; }
 .setup h1 { margin: 0; }
 
 /* ---------- Blazor template bits ---------- */
