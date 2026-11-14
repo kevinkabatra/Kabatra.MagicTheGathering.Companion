@@ -269,6 +269,28 @@ public class CloudTests
     }
 
     [Fact]
+    public async Task SupabaseDeckStore_SavesAndReadsTheChosenBracket()
+    {
+        string? sent = null;
+        var handler = new FakeHandler((_, body) =>
+        {
+            sent = body;
+            return FakeHandler.Json($"[{body![..^1]},\"updated_at\":\"2026-01-01T00:00:00+00:00\",\"owner\":{{\"name\":\"Sam\"}}}}]");
+        });
+        var store = new SupabaseDeckStore(new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore()), null, Guid.NewGuid());
+
+        var saved = await store.SaveAsync(new Deck { Name = "Turbo", DeclaredBracket = CommanderBracket.Competitive });
+        Assert.Contains("\"bracket\":5", sent);
+        Assert.Contains("bracket", Uri.UnescapeDataString(handler.Requests.Single().Request.RequestUri!.Query));
+        Assert.Equal(CommanderBracket.Competitive, saved.DeclaredBracket);
+
+        // Going back to the estimate sends null, so it sticks.
+        var cleared = await store.SaveAsync(new Deck { Name = "Turbo" });
+        Assert.Contains("\"bracket\":null", sent);
+        Assert.Null(cleared.DeclaredBracket);
+    }
+
+    [Fact]
     public async Task SupabaseDeckStore_SetsOnlyTheCollectionFlag()
     {
         var id = Guid.NewGuid();

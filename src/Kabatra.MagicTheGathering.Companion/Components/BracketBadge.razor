@@ -1,7 +1,7 @@
 @* A small "B3 · Upgraded" pill for a Commander deck's estimated bracket. Renders nothing for other formats. *@
 @if (_assessment is { } a)
 {
-    <span class="bracket-badge b@(a.Number)" title="@($"Commander {a.Label}: {string.Join("; ", a.Reasons)}")">
+    <span class="bracket-badge b@(a.Number)" title="@($"Commander {a.Label}{(a.IsDeclared ? " (chosen by its owner)" : "")}: {string.Join("; ", a.Reasons)}")">
         <span class="num">B@(a.Number)</span>@if (!Compact) { <span class="name">@a.Name</span> }
     </span>
 }

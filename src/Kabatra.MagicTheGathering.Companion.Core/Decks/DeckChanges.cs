@@ -79,12 +79,12 @@ internal sealed class CardLinesSnapshot
 public sealed class DeckSnapshot
 {
     private readonly CardLinesSnapshot _lines;
-    private readonly (string Name, string OwnerName, Guid? OwnerProfileId, string Format, string Notes) _details;
+    private readonly (string Name, string OwnerName, Guid? OwnerProfileId, string Format, string Notes, CommanderBracket? Bracket) _details;
 
     private DeckSnapshot(Deck deck)
     {
         _lines = new CardLinesSnapshot(deck.Cards);
-        _details = (deck.Name, deck.OwnerName, deck.OwnerProfileId, deck.Format, deck.Notes);
+        _details = (deck.Name, deck.OwnerName, deck.OwnerProfileId, deck.Format, deck.Notes, deck.DeclaredBracket);
     }
 
     public static DeckSnapshot Of(Deck deck)
@@ -101,7 +101,7 @@ public sealed class DeckSnapshot
     {
         ArgumentNullException.ThrowIfNull(deck);
         deck.Cards = _lines.Restore();
-        (deck.Name, deck.OwnerName, deck.OwnerProfileId, deck.Format, deck.Notes) = _details;
+        (deck.Name, deck.OwnerName, deck.OwnerProfileId, deck.Format, deck.Notes, deck.DeclaredBracket) = _details;
     }
 
     /// <summary>

@@ -89,6 +89,10 @@ create table if not exists public.decks (
 -- Added after the table first shipped, so it's an alter to reach existing databases.
 alter table public.decks add column if not exists cards_in_collection boolean not null default false;
 
+-- The Commander bracket the owner says the deck is: 1 (Exhibition) or 5 (cEDH), which depend on how a deck is meant
+-- to be played rather than its cards. Null means the app's estimate is used.
+alter table public.decks add column if not exists bracket smallint check (bracket in (1, 5));
+
 -- Finished games. The id is the game's own id, so recording a game twice just replaces it.
 create table if not exists public.game_records (
     id           uuid primary key,

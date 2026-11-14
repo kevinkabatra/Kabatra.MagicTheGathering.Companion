@@ -39,6 +39,16 @@ The highest rule that matches wins.
 
 Only the commander and main deck count. The sideboard doesn't. Brackets are shown only for decks in the Commander format.
 
+### Brackets 1 and 5: the owner's choice
+
+On the deck page, whoever can edit a deck can set its bracket to **1 · Exhibition** or **5 · cEDH**, or leave it on
+the estimate. The choice is saved with the deck: `Deck.DeclaredBracket` in the app, and the `decks.bracket` column in
+Supabase (1, 5 or null).
+
+- **cEDH always stands.** Bracket 5 has no card limits beyond Bracket 4's.
+- **Exhibition stands only when the deck keeps to Bracket 1's limits:** no Game Changers, mass land denial, two-card
+  combos or extra turns. Otherwise the estimate is shown, with a note saying why.
+
 Three numbers are our own reading of rules that give no figure:
 
 - "Early" combos cost 6 mana or less. Wizards' wording is "cheaply and in about the first six or so turns".
