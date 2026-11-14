@@ -1,0 +1,53 @@
+@* The deck page's Commander Bracket estimate, with the cards that set it. *@
+<section class="bracket-panel b@(Assessment.Number)" aria-label="Commander bracket">
+    <div class="row spread">
+        <strong><span class="bracket-badge b@(Assessment.Number)"><span class="num">B@(Assessment.Number)</span></span> @Assessment.Label</strong>
+        <button class="link small" @onclick="() => _open = !_open" aria-expanded="@_open">@(_open ? "Hide details" : "Why?")</button>
+    </div>
+    <p class="muted small">@CommanderBrackets.DescriptionOf(Assessment.Bracket)</p>
+
+    @if (_open)
+    {
+        <ul class="reasons">
+            @foreach (var reason in Assessment.Reasons) { <li>@reason</li> }
+        </ul>
+
+        @if (Assessment.GameChangers.Count > 0)
+        {
+            <h4>Game Changers (@Assessment.GameChangers.Count)</h4>
+            <p class="cards">@string.Join(", ", Assessment.GameChangers)</p>
+        }
+        @if (Assessment.MassLandDenial.Count > 0)
+        {
+            <h4>Mass land denial</h4>
+            <p class="cards">@string.Join(", ", Assessment.MassLandDenial)</p>
+        }
+        @if (Assessment.Combos.Count > 0)
+        {
+            <h4>Two-card combos</h4>
+            <ul class="cards">
+                @foreach (var combo in Assessment.Combos)
+                {
+                    <li>@combo.First + @combo.Second: @combo.Result <span class="muted">(@(combo.IsEarly ? "early game" : "late game"), @combo.Cost mana)</span></li>
+                }
+            </ul>
+        }
+        @if (Assessment.ExtraTurns.Count > 0)
+        {
+            <h4>Extra turns (@Assessment.ExtraTurns.Count)</h4>
+            <p class="cards">@string.Join(", ", Assessment.ExtraTurns)</p>
+        }
+
+        <p class="muted small">
+            This is an estimate from the Commander Brackets rules (updated @BracketCardLists.UpdatedOn.ToString("MMMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture)).
+            Bracket 1 (Exhibition) and Bracket 5 (cEDH) depend on how a deck is meant to be played, so they're never estimated.
+            Talk about your deck with your table before the game.
+        </p>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public BracketAssessment Assessment { get; set; } = default!;
+
+    private bool _open;
+}
