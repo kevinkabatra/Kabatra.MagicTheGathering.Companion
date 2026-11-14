@@ -225,7 +225,26 @@
         _printings = null;
     }
 
-    private Task Add(CardInfo card, DeckSection section) => OnAdd.InvokeAsync((card, section));
+    /// <summary>Adds the card, then clears the search so the next card starts from an empty box.</summary>
+    private async Task Add(CardInfo card, DeckSection section)
+    {
+        await OnAdd.InvokeAsync((card, section));
+        ClearSearch();
+    }
+
+    private void ClearSearch()
+    {
+        _typing?.Cancel(); // drop any suggestions still on their way for the old text
+        _query = "";
+        _lastQuery = "";
+        _page = 1;
+        _suggestions = [];
+        _results = null;
+        _error = null;
+        _printingsError = null;
+        ClosePrintings();
+        if (_zoom.Card is { } zoomed) _zoom.End(zoomed);
+    }
 
     public void Dispose()
     {
