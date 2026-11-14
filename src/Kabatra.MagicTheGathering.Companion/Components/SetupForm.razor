@@ -14,6 +14,20 @@
         </div>
     </div>
 
+    @if (Library.SignedIn && Library.Groups.Count > 0)
+    {
+        @* The game's players, decks and play history all come from this group. *@
+        <label class="field">
+            <span>Playgroup</span>
+            <select value="@Library.CurrentGroup?.Id" @onchange="SelectGroupAsync" disabled="@_switchingGroup">
+                @foreach (var group in Library.Groups)
+                {
+                    <option value="@group.Id">@group.Name</option>
+                }
+            </select>
+        </label>
+    }
+
     <label class="field">
         <span>Format</span>
         <select @bind="_formatIndex">
@@ -120,6 +134,7 @@
     private List<Deck> _decks = [];
     private List<PlayerProfile> _profiles = [];
     private string? _formatHint;
+    private bool _switchingGroup;
 
     protected override async Task OnInitializedAsync()
     {
@@ -131,10 +146,18 @@
             _deckIds = _names.Select(_ => (Guid?)null).ToList();
         }
 
+        await Library.InitializeAsync();
+        await LoadDecksAndProfilesAsync();
+    }
+
+    /// <summary>Loads the current playgroup's decks and players, and drops seat picks that aren't in it.</summary>
+    private async Task LoadDecksAndProfilesAsync()
+    {
+        _decks = [];
+        _profiles = [];
         // Decks and profiles are optional: if they can't be loaded (offline, not signed in), setup works as before.
         try
         {
-            await Library.InitializeAsync();
             if (Library.Store is { } store)
                 _decks = (await store.ListAsync())
                     .OrderBy(d => d.OwnerName, StringComparer.CurrentCultureIgnoreCase)
@@ -148,6 +171,21 @@
         // Forget remembered profiles that were deleted, or that belong to another playgroup.
         for (var i = 0; i < _profileIds.Count; i++)
             if (_profileIds[i] is { } id && _profiles.All(p => p.Id != id)) _profileIds[i] = null;
+        for (var i = 0; i < _deckIds.Count; i++)
+            if (_deckIds[i] is { } id && _decks.All(d => d.Id != id)) _deckIds[i] = null;
+    }
+
+    private async Task SelectGroupAsync(ChangeEventArgs e)
+    {
+        if (!Guid.TryParse(e.Value?.ToString(), out var groupId) || groupId == Library.CurrentGroup?.Id) return;
+        _switchingGroup = true;
+        try
+        {
+            await Library.SelectGroupAsync(groupId);
+            await LoadDecksAndProfilesAsync();
+            UpdateFormatFromDecks();
+        }
+        finally { _switchingGroup = false; }
     }
 
     /// <summary>Decks grouped by owner, with the seat's own decks first.</summary>
