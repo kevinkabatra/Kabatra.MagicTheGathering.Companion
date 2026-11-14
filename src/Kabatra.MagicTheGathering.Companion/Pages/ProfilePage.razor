@@ -122,7 +122,7 @@
                                     <span class="muted small">@(record.Games == 0 ? "Not played yet" : $"{record.Wins}–{record.Games - record.Wins} in {record.Games} game{(record.Games == 1 ? "" : "s")}")</span>
                                 </div>
                             </a>
-                            @if (_canManage)
+                            @if (_canManage && !deck.CardsInCollection && !_decksAdded.Contains(deck.Id))
                             {
                                 <button class="link small" @onclick="() => AddDeckToCollectionAsync(deck)" title="Count this deck's cards as owned">+ Add its cards to the collection</button>
                             }
@@ -319,6 +319,9 @@
     private IReadOnlyList<CollectionChange> _changes = [];
     private bool _showAllChanges;
 
+    /// <summary>Decks whose cards were added to the collection since it was saved. Marked on the deck when it's saved.</summary>
+    private readonly HashSet<Guid> _decksAdded = [];
+
     /// <summary>How many changes the panel lists before "Show all", so a pasted list doesn't fill the page.</summary>
     private const int ChangesShown = 10;
 
@@ -432,6 +435,7 @@
         if (_profile is null || _saved is null) return;
         if (!await Js.InvokeAsync<bool>("confirm", "Discard your unsaved changes to this player?")) return;
         _saved.Restore(_profile);
+        _decksAdded.Clear();
         _dirty = false;
         _error = null;
         SnapshotSaved();
@@ -454,6 +458,7 @@
     {
         if (!await Js.InvokeAsync<bool>("confirm", $"Add all {deck.Cards.Sum(c => c.Quantity)} cards in \"{deck.Name}\" to {_profile!.Name}'s collection?")) return;
         _profile.AddDeckToCollection(deck);
+        _decksAdded.Add(deck.Id);
         Touch();
         await ResolveCollectionAsync();
     }
@@ -493,6 +498,7 @@
             _savedName = saved.Name;
             SnapshotSaved();
             await Library.MyProfileSavedAsync(saved);
+            await MarkDecksAddedAsync();
         }
         catch (Exception e) when (e is SupabaseException or HttpRequestException)
         {
@@ -501,6 +507,18 @@
         finally
         {
             _saving = false;
+        }
+    }
+
+    /// <summary>Records on each deck added to the collection that its cards are in it, so it can't be added again.</summary>
+    private async Task MarkDecksAddedAsync()
+    {
+        if (Library.Store is not { } decks) return;
+        foreach (var deck in _decks.Where(d => _decksAdded.Contains(d.Id)).ToList())
+        {
+            await decks.SetCardsInCollectionAsync(deck.Id, true);
+            deck.CardsInCollection = true;
+            _decksAdded.Remove(deck.Id);
         }
     }
 

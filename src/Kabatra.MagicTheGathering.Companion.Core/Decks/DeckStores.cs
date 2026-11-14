@@ -19,6 +19,9 @@ public interface IDeckStore
     Task<Deck> SaveAsync(Deck deck, CancellationToken ct = default);
 
     Task DeleteAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>Sets only <see cref="Deck.CardsInCollection"/>, leaving the rest of the deck as it's stored.</summary>
+    Task SetCardsInCollectionAsync(Guid id, bool value, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -58,6 +61,14 @@ public sealed class LocalDeckStore(IKeyValueStore store, TimeProvider? clock = n
         if (decks.RemoveAll(d => d.Id == id) > 0) await store.SetAsync(Key, JsonSerializer.Serialize(decks, Json));
     }
 
+    public async Task SetCardsInCollectionAsync(Guid id, bool value, CancellationToken ct = default)
+    {
+        var decks = await LoadAsync();
+        if (decks.FirstOrDefault(d => d.Id == id) is not { } deck) return;
+        deck.CardsInCollection = value;
+        await store.SetAsync(Key, JsonSerializer.Serialize(decks, Json));
+    }
+
     private async Task<List<Deck>> LoadAsync()
     {
         var json = await store.GetAsync(Key);
@@ -76,7 +87,7 @@ public sealed class LocalDeckStore(IKeyValueStore store, TimeProvider? clock = n
 /// <param name="defaultOwner">The profile a new deck without an owner goes to: the signed-in user's own.</param>
 public sealed class SupabaseDeckStore(SupabaseClient supabase, Playgroup? group, Guid defaultOwner) : IDeckStore
 {
-    private const string Columns = "id,owner_profile_id,name,format,notes,cover_image_url,cards,updated_at";
+    private const string Columns = "id,owner_profile_id,name,format,notes,cover_image_url,cards,cards_in_collection,updated_at";
     private const string WithOwnerName = Columns + ",owner:player_profiles(name)";
 
     public string Description => group?.Name ?? "Your decks";
@@ -101,13 +112,20 @@ public sealed class SupabaseDeckStore(SupabaseClient supabase, Playgroup? group,
     {
         var row = new DeckWrite(
             deck.Id, deck.OwnerProfileId ?? defaultOwner, deck.Name.Trim(), deck.Format, deck.Notes ?? "", deck.CoverImageUrl,
-            deck.Cards.Select(CardRow.From).ToList());
+            deck.Cards.Select(CardRow.From).ToList(), deck.CardsInCollection);
         var rows = await supabase.UpsertAsync<DeckRow>($"decks?select={WithOwnerName}", row, ct);
         return rows.FirstOrDefault()?.ToDeck()
                ?? throw new SupabaseException("Only the deck's owner (or whoever looks after their profile) can change it.", 403);
     }
 
     public Task DeleteAsync(Guid id, CancellationToken ct = default) => supabase.DeleteAsync($"decks?id=eq.{id}", ct);
+
+    public async Task SetCardsInCollectionAsync(Guid id, bool value, CancellationToken ct = default)
+    {
+        var rows = await supabase.PatchAsync<DeckRow>($"decks?id=eq.{id}&select={WithOwnerName}", new { cards_in_collection = value }, ct);
+        // Row-level security hides rows the user can't change, so nothing coming back means "not allowed".
+        if (rows.Count == 0) throw new SupabaseException("Only the deck's owner (or whoever looks after their profile) can change it.", 403);
+    }
 
     /// <summary>The database row. Cards are stored as a JSON array in one column; the owner's name comes from their profile.</summary>
     internal sealed record DeckRow(
@@ -118,6 +136,7 @@ public sealed class SupabaseDeckStore(SupabaseClient supabase, Playgroup? group,
         string? Notes,
         string? CoverImageUrl,
         List<CardRow>? Cards,
+        bool? CardsInCollection,
         DateTimeOffset UpdatedAt,
         OwnerRow? Owner)
     {
@@ -130,6 +149,7 @@ public sealed class SupabaseDeckStore(SupabaseClient supabase, Playgroup? group,
             Format = Format ?? DeckFormat.Commander.Id,
             Notes = Notes ?? "",
             CoverImageUrl = CoverImageUrl,
+            CardsInCollection = CardsInCollection ?? false,
             UpdatedAt = UpdatedAt,
             Cards = (Cards ?? []).Select(c => c.ToDeckCard()).ToList(),
         };
@@ -146,7 +166,8 @@ public sealed class SupabaseDeckStore(SupabaseClient supabase, Playgroup? group,
         string Notes,
         // Sent even when null, so clearing the cover on an existing deck sticks.
         [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? CoverImageUrl,
-        List<CardRow> Cards);
+        List<CardRow> Cards,
+        bool CardsInCollection);
 
     internal sealed record CardRow(string Name, int Quantity, DeckSection Section, Guid? ScryfallId, string? SetCode, string? CollectorNumber)
     {

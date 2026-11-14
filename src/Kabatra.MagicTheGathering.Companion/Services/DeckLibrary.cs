@@ -416,6 +416,7 @@ public sealed class DeckLibrary(
         {
             var copy = deck.Clone();
             copy.OwnerProfileId = me.Id;
+            copy.CardsInCollection = false; // guests have no collection
             await target.SaveAsync(copy);
             await LocalDecks.DeleteAsync(deck.Id);
         }

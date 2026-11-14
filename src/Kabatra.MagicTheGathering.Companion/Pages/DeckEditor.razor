@@ -400,22 +400,52 @@
         if (_deck is null || Library.Store is not { } store) return;
         _saving = true;
         _saveError = null;
+
+        // The deck as it's stored, before this save: whose collection its cards went into, and which cards they were.
+        var before = _deck.Clone();
+        _saved?.Restore(before);
+        var leavingCollection = _deck.CardsInCollection && before.OwnerProfileId is { } oldOwner && oldOwner != _deck.OwnerProfileId;
+        if (leavingCollection) _deck.CardsInCollection = false;
+
+        Deck saved;
         try
         {
             _deck.CoverImageUrl = PickCover();
-            var saved = await store.SaveAsync(_deck);
+            saved = await store.SaveAsync(_deck);
             _dirty = false;
             SnapshotSaved();
+        }
+        catch (Exception e) when (e is SupabaseException or HttpRequestException)
+        {
+            if (leavingCollection) _deck.CardsInCollection = true;
+            _saveError = $"Couldn't save: {e.Message}";
+            _saving = false;
+            return;
+        }
+
+        try
+        {
+            // The new owner doesn't get the cards: they can add them to their collection from their page.
+            if (leavingCollection) await RemoveFromCollectionAsync(before);
             if (Id is null) Nav.NavigateTo($"decks/{saved.Id}", replace: true);
         }
         catch (Exception e) when (e is SupabaseException or HttpRequestException)
         {
-            _saveError = $"Couldn't save: {e.Message}";
+            _saveError = $"Saved, but couldn't take the cards out of {before.OwnerName}'s collection: {e.Message}";
         }
         finally
         {
             _saving = false;
         }
+    }
+
+    /// <summary>Takes a deck's cards back out of the collection of the owner they were added for.</summary>
+    private async Task RemoveFromCollectionAsync(Deck deck)
+    {
+        if (deck.OwnerProfileId is not { } ownerId || Library.Profiles is not { } profiles) return;
+        if (await profiles.GetAsync(ownerId) is not { } owner) return; // the profile is gone, and its collection with it
+        owner.RemoveDeckFromCollection(deck);
+        await Library.MyProfileSavedAsync(await profiles.SaveAsync(owner));
     }
 
     /// <summary>The commander's art, or else the art of the deck's most-played spell.</summary>

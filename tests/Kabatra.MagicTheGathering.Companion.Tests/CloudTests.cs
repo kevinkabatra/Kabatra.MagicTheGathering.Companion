@@ -251,6 +251,54 @@ public class CloudTests
     }
 
     [Fact]
+    public async Task SupabaseDeckStore_SavesAndReadsWhetherTheCardsAreInTheCollection()
+    {
+        string? sent = null;
+        var handler = new FakeHandler((_, body) =>
+        {
+            sent = body;
+            return FakeHandler.Json($"[{body![..^1]},\"updated_at\":\"2026-01-01T00:00:00+00:00\",\"owner\":{{\"name\":\"Sam\"}}}}]");
+        });
+        var store = new SupabaseDeckStore(new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore()), null, Guid.NewGuid());
+
+        var saved = await store.SaveAsync(new Deck { Name = "Goblins", CardsInCollection = true });
+
+        Assert.Contains("\"cards_in_collection\":true", sent);
+        Assert.Contains("cards_in_collection", Uri.UnescapeDataString(handler.Requests.Single().Request.RequestUri!.Query));
+        Assert.True(saved.CardsInCollection);
+    }
+
+    [Fact]
+    public async Task SupabaseDeckStore_SetsOnlyTheCollectionFlag()
+    {
+        var id = Guid.NewGuid();
+        string? sent = null;
+        var handler = new FakeHandler((_, body) =>
+        {
+            sent = body;
+            return FakeHandler.Json($$"""[{ "id": "{{id}}", "name": "Goblins", "cards_in_collection": true, "updated_at": "2026-01-01T00:00:00Z" }]""");
+        });
+        var store = new SupabaseDeckStore(new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore()), null, Guid.NewGuid());
+
+        await store.SetCardsInCollectionAsync(id, true);
+
+        var request = handler.Requests.Single().Request;
+        Assert.Equal(HttpMethod.Patch, request.Method);
+        Assert.Contains($"id=eq.{id}", request.RequestUri!.Query);
+        Assert.Equal("{\"cards_in_collection\":true}", sent);
+    }
+
+    [Fact]
+    public async Task SupabaseDeckStore_SettingTheFlagOnADeckYouCantChangeFails()
+    {
+        var handler = new FakeHandler((_, _) => FakeHandler.Json("[]"));
+        var store = new SupabaseDeckStore(new SupabaseClient(new HttpClient(handler), Options, new MemoryKeyValueStore()), null, Guid.NewGuid());
+
+        var error = await Assert.ThrowsAsync<SupabaseException>(() => store.SetCardsInCollectionAsync(Guid.NewGuid(), true));
+        Assert.Equal(403, error.Status);
+    }
+
+    [Fact]
     public async Task SupabaseDeckStore_ListsDecksWhoseOwnersAreInTheGroup()
     {
         var group = new Playgroup(Guid.NewGuid(), "Friday Night", Guid.NewGuid());

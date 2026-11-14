@@ -52,6 +52,13 @@ public sealed class Deck
 
     public List<DeckCard> Cards { get; set; } = [];
 
+    /// <summary>
+    /// Whether this deck's cards were added to its owner's collection with "Add its cards to the collection",
+    /// so they aren't added twice. Not shown on screen. Cleared when the deck changes owner, which also takes
+    /// the cards back out of the previous owner's collection.
+    /// </summary>
+    public bool CardsInCollection { get; set; }
+
     public DateTimeOffset UpdatedAt { get; set; }
 
     public DeckFormat GetFormat() => DeckFormat.FromId(Format);

@@ -59,6 +59,42 @@ public class ProfileTests
     }
 
     [Fact]
+    public void Collection_RemovingADeckUndoesAddingIt_AndKeepsOtherCopies()
+    {
+        var deck = new Deck { Name = "Goblins" };
+        deck.Add(TestCards.Krenko, DeckSection.Commander);
+        deck.Add(TestCards.Mountain, DeckSection.Main, 30);
+        deck.Add(TestCards.Bolt, DeckSection.Sideboard, 2);
+        var profile = new PlayerProfile();
+        profile.AddToCollection(TestCards.Bolt, 3); // owned before the deck was added
+
+        profile.AddDeckToCollection(deck);
+        profile.RemoveDeckFromCollection(deck);
+
+        Assert.Equal(3, profile.Collection.Single().Quantity);
+        Assert.Equal(TestCards.Bolt.Id, profile.Collection.Single().ScryfallId);
+    }
+
+    [Fact]
+    public void Collection_RemovingADeckNeverGoesBelowZero_AndMatchesLinesNotYetLookedUp()
+    {
+        var deck = new Deck { Name = "Burn" };
+        deck.Add(TestCards.Bolt, DeckSection.Main, 4);
+        var profile = new PlayerProfile();
+        // The collection line was pasted without an id; the deck's line has one.
+        profile.AddToCollection(new DeckCard
+        {
+            Name = TestCards.Bolt.Name, Quantity = 2, SetCode = TestCards.Bolt.SetCode, CollectorNumber = TestCards.Bolt.CollectorNumber,
+        });
+        profile.AddToCollection(TestCards.Mountain, 5);
+
+        profile.RemoveDeckFromCollection(deck);
+
+        Assert.Equal("Mountain", profile.Collection.Single().Name);
+        Assert.Equal(5, profile.CardCount);
+    }
+
+    [Fact]
     public void Collection_ValueUsesEachPrintingsPrice()
     {
         var cheap = TestCards.Bolt with { Prices = new CardPrices { Usd = 1.50m } };
