@@ -1,0 +1,52 @@
+@* A grid of a card's printings to choose from, with a filter once there are many. Used by scanning and search. *@
+
+@{ var shown = Filtered(); }
+<div class="printing-picker">
+    <div class="row spread">
+        <strong class="small">@Printings.Count printing@(Printings.Count == 1 ? "" : "s"), newest first</strong>
+        <button class="link" @onclick="OnHide">@HideText</button>
+    </div>
+    @if (Printings.Count > 12)
+    {
+        <input type="search" placeholder="Filter by set name, code or number" aria-label="Filter printings"
+               value="@_filter" @oninput="e => _filter = e.Value?.ToString() ?? string.Empty" />
+    }
+    <ul>
+        @foreach (var printing in shown)
+        {
+            <li @key="printing.Id">
+                <button class="printing @(printing.Id == SelectedId ? "on" : "")" @onclick="() => OnPick.InvokeAsync(printing)"
+                        title="@printing.SetName #@printing.CollectorNumber" aria-pressed="@(printing.Id == SelectedId)">
+                    @if (printing.ImageSmall is not null) { <img src="@printing.ImageSmall" alt="" loading="lazy" /> }
+                    <span class="set-name">@printing.SetName</span>
+                    <span class="muted">@printing.SetCode.ToUpperInvariant() #@printing.CollectorNumber</span>
+                </button>
+            </li>
+        }
+    </ul>
+    @if (shown.Count == 0) { <p class="muted small">No printing matches “@_filter”.</p> }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<CardInfo> Printings { get; set; } = [];
+
+    /// <summary>The printing currently chosen, shown highlighted.</summary>
+    [Parameter] public Guid? SelectedId { get; set; }
+
+    [Parameter] public EventCallback<CardInfo> OnPick { get; set; }
+    [Parameter] public EventCallback OnHide { get; set; }
+    [Parameter] public string HideText { get; set; } = "Hide";
+
+    private string _filter = "";
+
+    private List<CardInfo> Filtered()
+    {
+        var filter = _filter.Trim();
+        if (filter.Length == 0) return Printings.ToList();
+        return Printings.Where(p =>
+                p.SetName.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                || p.SetCode.Equals(filter, StringComparison.OrdinalIgnoreCase)
+                || p.CollectorNumber.Equals(filter.TrimStart('#'), StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+}

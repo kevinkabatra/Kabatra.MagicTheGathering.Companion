@@ -78,32 +78,7 @@
 
             @if (_printings is { } printings)
             {
-                var shown = FilteredPrintings(printings);
-                <div class="printing-picker">
-                    <div class="row spread">
-                        <strong class="small">@printings.Count printing@(printings.Count == 1 ? "" : "s"), newest first</strong>
-                        <button class="link" @onclick="() => _printings = null">Hide</button>
-                    </div>
-                    @if (printings.Count > 12)
-                    {
-                        <input type="search" placeholder="Filter by set name, code or number" aria-label="Filter printings"
-                               value="@_printingFilter" @oninput="e => _printingFilter = e.Value?.ToString() ?? string.Empty" />
-                    }
-                    <ul>
-                        @foreach (var printing in shown)
-                        {
-                            <li>
-                                <button class="printing @(printing.Id == match.Card.Id ? "on" : "")" @onclick="() => PickPrinting(printing)"
-                                        title="@printing.SetName #@printing.CollectorNumber" aria-pressed="@(printing.Id == match.Card.Id)">
-                                    @if (printing.ImageSmall is not null) { <img src="@printing.ImageSmall" alt="" loading="lazy" /> }
-                                    <span class="set-name">@printing.SetName</span>
-                                    <span class="muted">@printing.SetCode.ToUpperInvariant() #@printing.CollectorNumber</span>
-                                </button>
-                            </li>
-                        }
-                    </ul>
-                    @if (shown.Count == 0) { <p class="muted small">No printing matches “@_printingFilter”.</p> }
-                </div>
+                <PrintingPicker Printings="printings" SelectedId="match.Card.Id" OnPick="PickPrinting" OnHide="() => _printings = null" />
             }
         }
 
@@ -139,7 +114,6 @@
 
     private IReadOnlyList<CardInfo>? _printings;
     private bool _loadingPrintings;
-    private string _printingFilter = "";
 
     private string? _cameraError;
     private bool _busy;
@@ -155,7 +129,6 @@
         {
             _currentMatch = value;
             _printings = null;
-            _printingFilter = "";
         }
     }
     private bool _showManual;
@@ -284,17 +257,6 @@
     {
         _match = new ScanMatch(printing, ExactPrinting: true);
         SetStatus($"Using {printing.SetName} #{printing.CollectorNumber}.");
-    }
-
-    private List<CardInfo> FilteredPrintings(IReadOnlyList<CardInfo> printings)
-    {
-        var filter = _printingFilter.Trim();
-        if (filter.Length == 0) return printings.ToList();
-        return printings.Where(p =>
-                p.SetName.Contains(filter, StringComparison.OrdinalIgnoreCase)
-                || p.SetCode.Equals(filter, StringComparison.OrdinalIgnoreCase)
-                || p.CollectorNumber.Equals(filter.TrimStart('#'), StringComparison.OrdinalIgnoreCase))
-            .ToList();
     }
 
     private void NotIt()
