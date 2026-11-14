@@ -13,6 +13,9 @@
 --   * Profiles and playgroups are many-to-many (playgroup_profiles). Each playgroup has one admin profile.
 --   * Decks belong to a profile and are visible in every playgroup that profile is in.
 --   * Play history belongs to a playgroup.
+--   * Premium subscriptions live in provider-neutral tables (subscriptions, billing_customers). Stripe today, and
+--     the App Store and Google Play through RevenueCat later, all write the same rows from Edge Functions; the
+--     app only asks has_entitlement('premium') / my_entitlements(). Users can read their own rows, never write them.
 
 -- ---------- Codes ----------
 
@@ -553,6 +556,151 @@ begin
     return code;
 end $$;
 
+-- ---------- Billing ----------
+-- Provider-neutral: nothing here is specific to Stripe. Each payment provider's webhook (an Edge Function using the
+-- service role) turns its own events into rows of these tables, so changing or adding a provider needs no schema
+-- change. Provider, plan and entitlement names are lower_snake_case keys shared with the app, Stripe and RevenueCat
+-- (e.g. provider 'stripe', plan 'premium_monthly', entitlement 'premium').
+
+-- Who each user is at a payment provider (a Stripe customer id, a RevenueCat app user id, ...).
+create table if not exists public.billing_customers (
+    user_id              uuid not null references auth.users (id) on delete cascade,
+    provider             text not null check (provider ~ '^[a-z][a-z0-9_]{0,39}$'),
+    provider_customer_id text not null check (char_length(provider_customer_id) between 1 and 255),
+    created_at           timestamptz not null default now(),
+    primary key (user_id, provider),
+    unique (provider, provider_customer_id)
+);
+
+-- Every subscription a user has had, on any store. Webhooks upsert on (provider, provider_subscription_id) with the
+-- provider's current state, so the newest write is always the truth.
+create table if not exists public.subscriptions (
+    id                       uuid primary key default gen_random_uuid(),
+    user_id                  uuid not null references auth.users (id) on delete cascade,
+    provider                 text not null check (provider ~ '^[a-z][a-z0-9_]{0,39}$'),
+    -- Where it's billed, which decides where the user manages it.
+    store                    text not null check (store in ('web', 'app_store', 'play_store')),
+    provider_subscription_id text not null check (char_length(provider_subscription_id) between 1 and 255),
+    plan                     text not null check (plan ~ '^[a-z][a-z0-9_]{0,39}$'),
+    entitlement              text not null check (entitlement ~ '^[a-z][a-z0-9_]{0,39}$'),
+    -- Normalized across providers. Only trialing, active and past_due grant access (subscription_grants_access).
+    --   incomplete: checkout started but the first payment never went through; never granted access.
+    --   canceled:   ended early or after failed payments. expired: ran to the end of its last paid period.
+    status                   text not null check (status in ('incomplete', 'trialing', 'active', 'past_due', 'canceled', 'expired')),
+    trial_ends_at            timestamptz,
+    -- The end of the period already paid for (or of the trial). Null grants no access.
+    current_period_ends_at   timestamptz,
+    -- Set to stop renewing: access continues until current_period_ends_at.
+    cancel_at_period_end     boolean not null default false,
+    created_at               timestamptz not null default now(),
+    updated_at               timestamptz not null default now(),
+    unique (provider, provider_subscription_id)
+);
+
+create index if not exists subscriptions_user_entitlement_idx on public.subscriptions (user_id, entitlement);
+
+-- Every webhook delivery, keyed by the provider's event id: inserting first makes a redelivered event a no-op, and
+-- the payload and error are kept for debugging. Only Edge Functions touch it.
+create table if not exists public.billing_events (
+    provider     text not null check (provider ~ '^[a-z][a-z0-9_]{0,39}$'),
+    event_id     text not null check (char_length(event_id) between 1 and 255),
+    type         text not null,
+    received_at  timestamptz not null default now(),
+    processed_at timestamptz,
+    error        text,
+    payload      jsonb not null default '{}'::jsonb,
+    primary key (provider, event_id)
+);
+
+create index if not exists billing_events_received_idx on public.billing_events (received_at desc);
+
+create or replace function public.touch_updated_at()
+returns trigger language plpgsql set search_path = public as $$
+begin
+    new.created_at := case when tg_op = 'UPDATE' then old.created_at else new.created_at end;
+    new.updated_at := now();
+    return new;
+end $$;
+
+drop trigger if exists subscriptions_touch on public.subscriptions;
+create trigger subscriptions_touch before insert or update on public.subscriptions
+    for each row execute function public.touch_updated_at();
+
+-- How long access lasts past the end of a paid period. Covers a renewal webhook that arrives late and the first
+-- days of card retries. The app's billing code mirrors this rule; keep them in step.
+create or replace function public.billing_grace_period()
+returns interval language sql immutable set search_path = public as $$
+    select interval '3 days';
+$$;
+
+-- The one rule for "is paid": a trialing, active or past-due subscription whose period (plus the grace period)
+-- hasn't run out yet.
+create or replace function public.subscription_grants_access(status text, period_ends_at timestamptz, at timestamptz default now())
+returns boolean language sql stable set search_path = public as $$
+    select coalesce(status in ('trialing', 'active', 'past_due')
+        and period_ends_at + public.billing_grace_period() > at, false);
+$$;
+
+-- Whether the signed-in user has an entitlement (e.g. 'premium') from any store. Row-level security policies on
+-- Premium-only data call this, so the paywall holds even if someone skips the app's UI.
+create or replace function public.has_entitlement(entitlement_key text)
+returns boolean language sql stable security definer set search_path = public as $$
+    select exists (
+        select 1 from public.subscriptions s
+        where s.user_id = auth.uid()
+          and s.entitlement = entitlement_key
+          and public.subscription_grants_access(s.status, s.current_period_ends_at)
+    );
+$$;
+
+-- The signed-in user's entitlements, one row each, with what the app shows ("Renews on…", "Trial ends on…",
+-- "Manage in the App Store"). With subscriptions on two stores, the active one with the latest end wins.
+create or replace function public.my_entitlements()
+returns table (
+    entitlement            text,
+    plan                   text,
+    status                 text,
+    store                  text,
+    trial_ends_at          timestamptz,
+    current_period_ends_at timestamptz,
+    cancel_at_period_end   boolean
+)
+language sql stable security definer set search_path = public as $$
+    select distinct on (s.entitlement)
+        s.entitlement, s.plan, s.status, s.store, s.trial_ends_at, s.current_period_ends_at, s.cancel_at_period_end
+    from public.subscriptions s
+    where s.user_id = auth.uid()
+      and public.subscription_grants_access(s.status, s.current_period_ends_at)
+    order by s.entitlement,
+        case s.status when 'active' then 0 when 'trialing' then 1 else 2 end,
+        s.current_period_ends_at desc;
+$$;
+
+-- Whether the signed-in user has had a trial or a subscription that started, on any store, so isn't offered
+-- another free trial. A checkout that never went through (incomplete) doesn't count.
+create or replace function public.has_had_trial()
+returns boolean language sql stable security definer set search_path = public as $$
+    select exists (
+        select 1 from public.subscriptions s
+        where s.user_id = auth.uid()
+          and (s.trial_ends_at is not null or s.status <> 'incomplete')
+    );
+$$;
+
+alter table public.billing_customers enable row level security;
+alter table public.subscriptions enable row level security;
+alter table public.billing_events enable row level security; -- no policies: Edge Functions only
+
+-- Users see only their own billing rows. There are no insert, update or delete policies: only the payment
+-- webhooks write these, using the service role.
+drop policy if exists "read own billing customers" on public.billing_customers;
+create policy "read own billing customers" on public.billing_customers
+    for select to authenticated using (user_id = auth.uid());
+
+drop policy if exists "read own subscriptions" on public.subscriptions;
+create policy "read own subscriptions" on public.subscriptions
+    for select to authenticated using (user_id = auth.uid());
+
 -- ---------- Grants ----------
 -- The anon role gets nothing: every table requires a signed-in user.
 
@@ -571,7 +719,9 @@ begin
         'public.create_my_profile(text)', 'public.claim_profile(text)', 'public.profile_claim_code(uuid, boolean)',
         'public.create_profile(text, uuid)', 'public.create_playgroup(text)', 'public.join_playgroup(text)',
         'public.add_profile_to_playgroup(uuid, text)', 'public.transfer_playgroup(uuid, uuid)',
-        'public.playgroup_join_code(uuid, boolean)']
+        'public.playgroup_join_code(uuid, boolean)',
+        'public.billing_grace_period()', 'public.subscription_grants_access(text, timestamptz, timestamptz)',
+        'public.has_entitlement(text)', 'public.my_entitlements()', 'public.has_had_trial()']
     loop
         execute format('revoke all on function %s from public, anon', f);
         execute format('grant execute on function %s to authenticated', f);
@@ -593,3 +743,15 @@ grant update (name) on public.playgroups to authenticated;
 grant select, delete on public.playgroup_profiles to authenticated;
 
 grant select, insert, update, delete on public.decks, public.game_records to authenticated;
+
+-- Billing: users read their own rows (row-level security); only the service role, used by the payment webhooks
+-- and checkout Edge Functions, writes them.
+revoke all on public.billing_customers, public.subscriptions, public.billing_events from anon, authenticated;
+grant select on public.billing_customers, public.subscriptions to authenticated;
+revoke all on function public.touch_updated_at() from public, anon, authenticated;
+do $$
+begin
+    if exists (select 1 from pg_roles where rolname = 'service_role') then
+        grant select, insert, update, delete on public.billing_customers, public.subscriptions, public.billing_events to service_role;
+    end if;
+end $$;
