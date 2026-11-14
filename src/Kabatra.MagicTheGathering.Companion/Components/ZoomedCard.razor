@@ -1,0 +1,13 @@
+@* A card shown large over the page while its thumbnail is hovered or held (see CardZoom). *@
+
+@if (Card is { } card && (card.ImageNormal ?? card.ImageSmall) is { } image)
+{
+    <div class="card-zoom" aria-hidden="true">
+        <img src="@image" alt="" />
+        <span>@card.SetName · @card.SetCode.ToUpperInvariant() #@card.CollectorNumber</span>
+    </div>
+}
+
+@code {
+    [Parameter] public CardInfo? Card { get; set; }
+}

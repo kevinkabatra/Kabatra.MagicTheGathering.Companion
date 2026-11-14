@@ -501,10 +501,11 @@ label.button.disabled { opacity: 0.5; pointer-events: none; }
     border-radius: 8px;
     white-space: normal;
 }
-.printing-picker button.printing { -webkit-touch-callout: none; user-select: none; }
-.printing-picker button.printing img { -webkit-user-drag: none; }
-/* The large view of a hovered or long-pressed printing. It ignores the pointer, so hovering carries on beneath it. */
-.printing-zoom {
+/* Thumbnails that zoom on long press: no browser image menu, text selection or dragging. */
+.printing-picker button.printing, .card-thumb { -webkit-touch-callout: none; user-select: none; }
+.printing-picker button.printing img, .card-thumb img { -webkit-user-drag: none; }
+/* The large view of a hovered or long-pressed card. It ignores the pointer, so hovering carries on beneath it. */
+.card-zoom {
     position: fixed;
     inset: 0;
     z-index: 60;
@@ -515,14 +516,14 @@ label.button.disabled { opacity: 0.5; pointer-events: none; }
     padding: 16px;
     pointer-events: none;
 }
-.printing-zoom img {
+.card-zoom img {
     width: min(340px, 80vw);
     max-height: 75vh;
     object-fit: contain;
     border-radius: 4.75% / 3.5%;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
 }
-.printing-zoom span {
+.card-zoom span {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 999px;
