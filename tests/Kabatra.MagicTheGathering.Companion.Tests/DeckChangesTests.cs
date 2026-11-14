@@ -98,4 +98,41 @@ public class DeckChangesTests
 
         Assert.Equal([new DeckChange("Island", DeckSection.Main, -2)], snapshot.ChangesIn(deck));
     }
+
+    [Fact]
+    public void Restore_UndoesAddsRemovesMovesAndDetails()
+    {
+        var deck = Starter();
+        deck.Name = "Goblins";
+        var original = deck.Cards.Select(c => (c.Name, c.Quantity, c.Section)).ToList();
+        var snapshot = DeckSnapshot.Of(deck);
+
+        deck.Add(TestCards.Counterspell);
+        deck.SetQuantity(deck.Cards.Single(c => c.Name == "Mountain"), 0);
+        deck.Move(deck.Cards.Single(c => c.Name == "Lightning Bolt"), DeckSection.Sideboard);
+        deck.Name = "Something else";
+        deck.Format = DeckFormat.Modern.Id;
+
+        snapshot.Restore(deck);
+
+        Assert.Equal(original, deck.Cards.Select(c => (c.Name, c.Quantity, c.Section)).ToList());
+        Assert.Equal("Goblins", deck.Name);
+        Assert.Equal(DeckFormat.Commander.Id, deck.Format);
+        Assert.Empty(snapshot.ChangesIn(deck));
+    }
+
+    [Fact]
+    public void Restore_UndoesAMoveThatMergedIntoAnotherLine()
+    {
+        var deck = Starter();
+        deck.Add(TestCards.Bolt, DeckSection.Sideboard, 2);
+        var snapshot = DeckSnapshot.Of(deck);
+
+        deck.Move(deck.Cards.Single(c => c.Name == "Lightning Bolt" && c.Section == DeckSection.Main), DeckSection.Sideboard);
+        Assert.Equal(3, deck.Count(DeckSection.Sideboard));
+
+        snapshot.Restore(deck);
+
+        Assert.Equal((1, 2), (deck.In(DeckSection.Main).Single(c => c.Name == "Lightning Bolt").Quantity, deck.Count(DeckSection.Sideboard)));
+    }
 }

@@ -95,7 +95,10 @@
                 @if (_changes.Count > 0)
                 {
                     <section class="pending-changes" aria-live="polite">
-                        <h3>Unsaved changes</h3>
+                        <div class="row spread">
+                            <h3>Unsaved changes</h3>
+                            <button class="small" @onclick="DiscardAsync" disabled="@_saving">Discard changes</button>
+                        </div>
                         <ul>
                             @foreach (var change in _changes)
                             {
@@ -235,6 +238,18 @@
     {
         _saved = DeckSnapshot.Of(_deck!);
         _changes = [];
+    }
+
+    /// <summary>Puts the deck back as it was last loaded or saved, after asking.</summary>
+    private async Task DiscardAsync()
+    {
+        if (_deck is null || _saved is null) return;
+        if (!await Js.InvokeAsync<bool>("confirm", "Discard your unsaved changes to this deck?")) return;
+        _saved.Restore(_deck);
+        _dirty = false;
+        _changes = [];
+        _saveError = null;
+        Validate();
     }
 
     private string SectionLabel(DeckSection section) => section switch

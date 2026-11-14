@@ -14,15 +14,38 @@ public sealed record DeckChange(string Name, DeckSection Section, int Delta)
 public sealed class DeckSnapshot
 {
     private readonly Dictionary<DeckCard, (string Name, int Quantity, DeckSection Section)> _lines;
+    private readonly List<DeckCard> _order;
+    private readonly (string Name, string OwnerName, Guid? OwnerProfileId, string Format, string Notes) _details;
 
-    private DeckSnapshot(Dictionary<DeckCard, (string, int, DeckSection)> lines) => _lines = lines;
+    private DeckSnapshot(Deck deck)
+    {
+        _lines = new Dictionary<DeckCard, (string, int, DeckSection)>(ReferenceEqualityComparer.Instance);
+        foreach (var line in deck.Cards) _lines[line] = (line.Name, line.Quantity, line.Section);
+        _order = [.. deck.Cards];
+        _details = (deck.Name, deck.OwnerName, deck.OwnerProfileId, deck.Format, deck.Notes);
+    }
 
     public static DeckSnapshot Of(Deck deck)
     {
         ArgumentNullException.ThrowIfNull(deck);
-        var lines = new Dictionary<DeckCard, (string, int, DeckSection)>(ReferenceEqualityComparer.Instance);
-        foreach (var line in deck.Cards) lines[line] = (line.Name, line.Quantity, line.Section);
-        return new DeckSnapshot(lines);
+        return new DeckSnapshot(deck);
+    }
+
+    /// <summary>
+    /// Puts the deck back as it was in the snapshot, undoing every unsaved change: cards, name, owner, format and
+    /// notes. Lines keep anything learned by looking their card up since (its full name, its printing).
+    /// </summary>
+    public void Restore(Deck deck)
+    {
+        ArgumentNullException.ThrowIfNull(deck);
+        foreach (var line in _order)
+        {
+            var (_, quantity, section) = _lines[line];
+            line.Quantity = quantity;
+            line.Section = section;
+        }
+        deck.Cards = [.. _order];
+        (deck.Name, deck.OwnerName, deck.OwnerProfileId, deck.Format, deck.Notes) = _details;
     }
 
     /// <summary>
