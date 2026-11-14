@@ -59,7 +59,7 @@ public class BackupFileTests
     public void Restoring_GivesNewIds_DropsTheOwnerProfile_AndSkipsDecksAlreadyThere()
     {
         var goblins = Goblins();
-        var burn = new Deck { Name = "Burn" };
+        var burn = new Deck { Name = "Burn", OwnerProfileId = Guid.NewGuid(), CardsInCollection = true };
         burn.Add(TestCards.Bolt, DeckSection.Main, 4);
         var file = BackupFile.Read(BackupFile.Write([goblins, burn, goblins], null, Now));
 
@@ -70,5 +70,6 @@ public class BackupFileTests
         Assert.Equal("Burn", restored.Name);
         Assert.NotEqual(burn.Id, restored.Id); // never overwrites a deck
         Assert.Null(restored.OwnerProfileId);  // goes to whoever restores it
+        Assert.False(restored.CardsInCollection); // so its cards can go into their collection
     }
 }

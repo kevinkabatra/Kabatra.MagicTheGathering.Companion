@@ -84,6 +84,11 @@ create table if not exists public.decks (
     updated_at       timestamptz not null default now()
 );
 
+-- Whether the deck's cards were added to its owner's collection ("Add its cards to the collection"), so they
+-- aren't added twice. Cleared, and the cards taken back out of the old owner's collection, when the owner changes.
+-- Added after the table first shipped, so it's an alter to reach existing databases.
+alter table public.decks add column if not exists cards_in_collection boolean not null default false;
+
 -- Finished games. The id is the game's own id, so recording a game twice just replaces it.
 create table if not exists public.game_records (
     id           uuid primary key,

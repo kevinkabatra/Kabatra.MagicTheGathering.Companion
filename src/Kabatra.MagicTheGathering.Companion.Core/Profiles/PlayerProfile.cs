@@ -83,6 +83,22 @@ public sealed class PlayerProfile
         foreach (var line in deck.Cards) AddToCollection(line);
     }
 
+    /// <summary>
+    /// Takes every card in a deck back out of the collection, undoing <see cref="AddDeckToCollection"/>.
+    /// Copies the collection doesn't have are skipped, so no line goes below zero.
+    /// </summary>
+    public void RemoveDeckFromCollection(Deck deck)
+    {
+        ArgumentNullException.ThrowIfNull(deck);
+        foreach (var line in deck.Cards.Where(l => l.Quantity > 0))
+        {
+            // The same printing; or, if only one side has been looked up, the same name and printing details.
+            var existing = Collection.FirstOrDefault(c => SamePrinting(c, line))
+                ?? Collection.FirstOrDefault(c => SameDetails(c, line));
+            if (existing is not null) SetQuantity(existing, existing.Quantity - line.Quantity);
+        }
+    }
+
     /// <summary>Sets how many copies a line has; zero or less removes it.</summary>
     public void SetQuantity(DeckCard line, int quantity)
     {
@@ -104,7 +120,10 @@ public sealed class PlayerProfile
     private static bool SamePrinting(DeckCard a, DeckCard b) =>
         a.ScryfallId is { } x && b.ScryfallId is { } y
             ? x == y
-            : string.Equals(a.Name, b.Name, StringComparison.OrdinalIgnoreCase)
-              && string.Equals(a.SetCode, b.SetCode, StringComparison.OrdinalIgnoreCase)
-              && string.Equals(a.CollectorNumber, b.CollectorNumber, StringComparison.OrdinalIgnoreCase);
+            : SameDetails(a, b);
+
+    private static bool SameDetails(DeckCard a, DeckCard b) =>
+        string.Equals(a.Name, b.Name, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(a.SetCode, b.SetCode, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(a.CollectorNumber, b.CollectorNumber, StringComparison.OrdinalIgnoreCase);
 }

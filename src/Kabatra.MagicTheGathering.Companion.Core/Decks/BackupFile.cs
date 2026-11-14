@@ -67,6 +67,7 @@ public sealed record BackupFile(int Version, DateTimeOffset ExportedAt, List<Dec
                 var copy = d.Clone();
                 copy.Id = Guid.NewGuid();
                 copy.OwnerProfileId = null;
+                copy.CardsInCollection = false; // a new deck for whoever restores it; its cards aren't in their collection
                 return copy;
             })
             .ToList();
