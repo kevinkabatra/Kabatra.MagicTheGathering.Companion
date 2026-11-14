@@ -590,3 +590,11 @@ label.button.disabled { opacity: 0.5; pointer-events: none; }
 /* Playgroup admin */
 .profile-grid li { display: grid; gap: 0.2rem; align-content: start; }
 button.danger { color: var(--danger); border-color: var(--danger); }
+
+/* Backups */
+.backup { padding: 0.2rem 0; }
+.backup summary { cursor: pointer; color: var(--muted); }
+.backup[open] { display: grid; gap: 0.5rem; }
+.backup p { margin: 0; }
+.file-button { position: relative; overflow: hidden; cursor: pointer; }
+.file-button input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }

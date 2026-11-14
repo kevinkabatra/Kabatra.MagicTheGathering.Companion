@@ -63,8 +63,8 @@
     private bool _loading = true;
     private string? _error;
     private string? _loadedKey;
-    // Reload when signing in or out, switching groups, or after moving this device's decks to the profile.
-    private string StoreKey => $"{Library.SignedIn}:{Library.MyProfile?.Id}:{Library.CurrentGroup?.Id}:{Library.LocalDecksToMove}";
+    // Reload when signing in or out, switching groups, or after decks are moved or restored in bulk.
+    private string StoreKey => $"{Library.SignedIn}:{Library.MyProfile?.Id}:{Library.CurrentGroup?.Id}:{Library.DecksVersion}";
 
     protected override async Task OnInitializedAsync()
     {

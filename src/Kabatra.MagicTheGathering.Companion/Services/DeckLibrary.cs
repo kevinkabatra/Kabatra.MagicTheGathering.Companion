@@ -17,6 +17,7 @@ public sealed class DeckLibrary(
     SupabaseClient supabase,
     PlaygroupService playgroups,
     ProfileAccount account,
+    SyncPolicy sync,
     IKeyValueStore storage,
     NavigationManager nav,
     IReadOnlyList<AuthProvider> providers)
@@ -42,6 +43,9 @@ public sealed class DeckLibrary(
     /// profile. Zero when there are none, or once they've moved them or chosen to keep them here.
     /// </summary>
     public int LocalDecksToMove { get; private set; }
+
+    /// <summary>Goes up whenever decks are added in bulk (moved or restored), so pages showing decks know to reload.</summary>
+    public int DecksVersion { get; private set; }
 
     /// <summary>The sign-in buttons to offer, in order.</summary>
     public IReadOnlyList<AuthProvider> Providers => providers;
@@ -74,7 +78,7 @@ public sealed class DeckLibrary(
     /// playgroup's decks (or just their own, with no playgroup). Null while a signed-in user has no profile yet.
     /// </summary>
     public IDeckStore? Store =>
-        Guest ? LocalDecks
+        !sync.CanSync ? LocalDecks
         : MyProfile is { } me ? new SupabaseDeckStore(supabase, CurrentGroup, me.Id)
         : null;
 
@@ -397,7 +401,7 @@ public sealed class DeckLibrary(
     private async Task CountLocalDecksAsync()
     {
         var kept = await storage.GetAsync(LocalDecksDismissedKey);
-        LocalDecksToMove = MyProfile is not null && kept != UserId?.ToString() ? await LocalDecks.CountAsync() : 0;
+        LocalDecksToMove = sync.CanSync && MyProfile is not null && kept != UserId?.ToString() ? await LocalDecks.CountAsync() : 0;
     }
 
     /// <summary>
@@ -416,7 +420,65 @@ public sealed class DeckLibrary(
             await LocalDecks.DeleteAsync(deck.Id);
         }
         LocalDecksToMove = 0;
+        DecksVersion++;
     });
+
+    // ----- Backups -----
+
+    /// <summary>
+    /// The player's own decks (the device's for a guest; their profile's when signed in) and, when signed in, their
+    /// collection, as one backup file. Decks shared by others in a playgroup aren't included.
+    /// </summary>
+    public async Task<string?> ExportBackupAsync(DateTimeOffset now)
+    {
+        string? json = null;
+        await Run(async () =>
+        {
+            var (decks, _) = OwnDecks();
+            var collection = MyProfile is { } me && Profiles is { } profiles ? (await profiles.GetAsync(me.Id))?.Collection : null;
+            json = BackupFile.Write(await decks.ListAsync(), collection, now);
+        });
+        return json;
+    }
+
+    /// <summary>What restoring a backup did.</summary>
+    public sealed record RestoreResult(int DecksAdded, int DecksSkipped, int CardsAdded, bool CollectionSkipped);
+
+    /// <summary>
+    /// Adds a backup's decks to the player's own (skipping ones already there) and, when signed in, merges its
+    /// collection into theirs. Nothing is overwritten. A guest has no collection, so a backup's collection is skipped.
+    /// </summary>
+    public async Task<RestoreResult?> RestoreBackupAsync(BackupFile backup)
+    {
+        RestoreResult? result = null;
+        await Run(async () =>
+        {
+            var (decks, _) = OwnDecks();
+            var toAdd = backup.DecksToRestore(await decks.ListAsync());
+            foreach (var deck in toAdd) await decks.SaveAsync(deck);
+            if (toAdd.Count > 0) DecksVersion++;
+
+            var cards = 0;
+            var collection = backup.Collection ?? [];
+            if (collection.Count > 0 && MyProfile is { } me && Profiles is { } profiles && await profiles.GetAsync(me.Id) is { } profile)
+            {
+                foreach (var line in collection.Where(l => l.Quantity > 0)) profile.AddToCollection(line);
+                await MyProfileSavedAsync(await profiles.SaveAsync(profile));
+                cards = collection.Sum(l => Math.Max(0, l.Quantity));
+            }
+
+            result = new RestoreResult(toAdd.Count, backup.Decks.Count - toAdd.Count, cards,
+                CollectionSkipped: collection.Count > 0 && MyProfile is null);
+        });
+        return result;
+    }
+
+    /// <summary>
+    /// Where the player's own decks are: the device for a guest (or anyone <see cref="SyncPolicy"/> doesn't sync),
+    /// else their profile in Supabase, whatever playgroup is selected.
+    /// </summary>
+    private (IDeckStore Store, bool Synced) OwnDecks() =>
+        sync.CanSync && MyProfile is { } me ? (new SupabaseDeckStore(supabase, null, me.Id), true) : (LocalDecks, false);
 
     /// <summary>Leaves the device's decks where they are, and stops offering to move them for this account.</summary>
     public async Task KeepLocalDecksAsync()

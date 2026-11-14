@@ -35,6 +35,7 @@ builder.Services.AddSingleton(supabase);
 builder.Services.AddScoped(sp => new SupabaseClient(new HttpClient(), supabase, sp.GetRequiredService<IKeyValueStore>()));
 builder.Services.AddScoped<PlaygroupService>();
 builder.Services.AddScoped<ProfileAccount>();
+builder.Services.AddScoped<SyncPolicy>();
 
 // Sign-in providers, e.g. "Auth": { "Providers": ["google", "apple"] }. Each must be turned on in Supabase Auth.
 var providers = AuthProviders.From(builder.Configuration.GetSection("Auth:Providers").GetChildren().Select(c => c.Value));
